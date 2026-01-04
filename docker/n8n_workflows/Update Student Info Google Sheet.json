@@ -1,0 +1,120 @@
+{
+  "name": "Update Student Info Google Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://frieren-backend:8000/api/google_sheet/export-student-attendance?student_id={{ $json.student.id }}&sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        -48
+      ],
+      "id": "db6ee5bb-7de1-4867-975d-ed6414535bfe",
+      "name": "Export Google Sheet"
+    },
+    {
+      "parameters": {
+        "queue": "checkin",
+        "options": {
+          "parallelMessages": 1
+        }
+      },
+      "type": "n8n-nodes-base.rabbitmqTrigger",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -48
+      ],
+      "id": "1aae1eec-3366-4050-8da7-837b506ffc6c",
+      "name": "RabbitMQ Trigger",
+      "credentials": {
+        "rabbitmq": {
+          "id": "gZqjt1IQTLir41At",
+          "name": "RabbitMQ account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import json\n\nprint(\"Start\")\ninput_data = items[0]['json']\n    \n    # Получаем значение из поля \"content\"\ncontent = input_data.get('content', '{}')\ntext = json.loads(content)\nreturn [text]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        -48
+      ],
+      "id": "bbb54436-3617-4c0a-85cd-92d8df185304",
+      "name": "Code",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        528,
+        -48
+      ],
+      "id": "78c50cba-9d95-46a3-bb6c-d53a61806cc2",
+      "name": "Wait",
+      "webhookId": "49be104c-4f81-4b59-b9da-5b738ca4c3b1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RabbitMQ Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Export Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "5937d5aa-e776-4c53-bc00-30c3a81f3f0a",
+  "meta": {
+    "instanceId": "e880196fc9de42e12da452059f21424051075132259be024f2df0d479c0553fa"
+  },
+  "id": "iRQsAl8lqBuH2LDq",
+  "tags": []
+}

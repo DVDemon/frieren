@@ -1,0 +1,471 @@
+{
+  "name": "Homework Submission",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "homework-submission",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "0b61a2e2-e734-4ab5-81af-8a353e4225f6",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1744,
+        688
+      ],
+      "webhookId": "homework-submission-webhook"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "# Loop over input items and add a new field called 'myNewField' to the JSON of each one\n# for item in _input.all():\n#   print(item.json)\n# return _input.all()\n\ndef validate_input(data):\n    # Извлечение полей из JSON\n    number = data.json.body.number\n    url = data.json.body.url\n    telegram = data.json.body.student.telegram\n    comment = data.json.body.comments\n    \n\n    # Проверка типов и значений\n    if not isinstance(number, int) or number < 1:\n        raise ValueError('homework_number must be a positive number')\n\n    if not isinstance(telegram, str) or not telegram.strip():\n        raise ValueError('telegram must be a non-empty string')\n\n    if not isinstance(url, str) or not url.strip():\n        raise ValueError('url must be a non-empty string')\n\n    if url.find(\"https://github.com/\") !=0:\n      raise ValueError('url must be a github repository')\n\n    # Возвращаем очищенные данные\n    return [{\n        'telegram': telegram.strip(),\n        'number': int(number),\n        'url': url.strip(),\n        'comment': comment.strip()\n    }]\n\n# Пример использования в n8n (если данные приходят в $input)\ntry:\n    input_data = _input.all()[0]  # Предполагаем, что input_data = $input.all()[0].json\n    return validate_input(input_data)\n    \nexcept ValueError as e:\n    raise Exception(str(e))  # Пробрасываем ошибку в n8n"
+      },
+      "id": "38618c71-e75b-4e74-85bf-7f584cb7d33b",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1536,
+        688
+      ],
+      "alwaysOutputData": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.1.89:8000/api/students/by-telegram/{{ $json.telegram }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "full_name",
+              "value": "={{ $json.student_name }}"
+            },
+            {
+              "name": "group_number",
+              "value": "={{ $json.group_number }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "eb199d35-11de-4043-b01c-03d5e30a8e66",
+      "name": "Find Student",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -1296,
+        560
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.89:8000/api/homework_review/",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": {{ $('Validate Input').item.json.number }},\n  \"send_date\": \"{{ $now }}\",\n  \"review_date\" : \"\",\n  \"comments\" : \"{{ $('Validate Input').item.json.comment }}\",\n  \"url\": \"{{ $('Validate Input').item.json.url }}\",\n  \"student_id\": {{ $json.id }},\n  \"result\" : 0\n}",
+        "options": {}
+      },
+      "id": "6708e959-9e3a-4088-b5a2-ba0964a669dd",
+      "name": "Save Homework Review",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        -1104,
+        432
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "c252d252-dd48-4055-a809-2d4822607718",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://192.168.1.89:8000/api/homework_review/{{ $json.id }}/download",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -912,
+        384
+      ],
+      "id": "491caf88-dba1-42c8-8302-14c70cdb2cd7",
+      "name": "Download Github",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://192.168.1.89:8000/api/homework_review/{{ $json.id }}/check-ai",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -688,
+        272
+      ],
+      "id": "34aa1b75-dc14-479b-8208-52a8970ad19e",
+      "name": "AI Check",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://192.168.1.89:8000/api/google_sheet/export-review?sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8&review_id={{ $('Save Homework Review').item.json.id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -256,
+        112
+      ],
+      "id": "3ad73b0e-1e4b-4f0b-b4aa-87d9220df346",
+      "name": "Export to Google Sheet",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "amount": 15
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -464,
+        208
+      ],
+      "id": "681067da-0df6-4f78-bbed-2089c510e1ee",
+      "name": "Wait",
+      "webhookId": "593331c1-904b-4f74-8c0f-024ea728fc3e"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook Trigger').item.json.body.chat_id }}",
+        "text": "✅ Домашнее задание зарегистрированно",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dc5ee49c-5de7-4e04-b1b7-b585b7434012",
+      "name": "Send Success Message",
+      "webhookId": "efb38f6b-131a-4f6c-89f5-191798349685",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook Trigger').item.json.body.chat_id }}",
+        "text": "=❌ Ошибка валидации данных\n{{ $json.error }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1344,
+        976
+      ],
+      "id": "1012c47c-699d-416c-9b64-9f14f7a1e337",
+      "name": "Send Validation Error",
+      "webhookId": "validation-error-webhook",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook Trigger').item.json.body.chat_id }}",
+        "text": "=❌ Студент не найден: {{ $json.telegram }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1168,
+        752
+      ],
+      "id": "52908573-ca59-4a84-a240-0cae3ed02317",
+      "name": "Send Student Not Found Error",
+      "webhookId": "student-not-found-webhook",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook Trigger').item.json.body.chat_id }}",
+        "text": "❌ Ошибка сохранения домашнего задания",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -928,
+        624
+      ],
+      "id": "9d2bfae1-cad7-4d24-9459-72f0eae4f479",
+      "name": "Send Save Homework Error",
+      "webhookId": "save-homework-error-webhook",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook Trigger').item.json.body.chat_id }}",
+        "text": "=⚠️ Ошибка загрузки репозитория: {{ $json.url }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -704,
+        496
+      ],
+      "id": "0dae605f-013f-4a70-87a9-2f9cc5f6bffa",
+      "name": "Send Download Error",
+      "webhookId": "download-error-webhook",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Webhook Trigger": [
+      {
+        "json": {
+          "headers": {
+            "host": "localhost:5678",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate",
+            "user-agent": "Python/3.13 aiohttp/3.12.13",
+            "content-length": "187",
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "number": 1,
+            "send_date": "2025-08-22T14:31:35.664076",
+            "url": "https://github.com/DVDemon/hl_mai_02_httplib",
+            "comments": "",
+            "chat_id": 162863036,
+            "student": {
+              "telegram": "@dvdzyuba"
+            }
+          },
+          "webhookUrl": "http://localhost:5678/webhook-test/homework-submission",
+          "executionMode": "test"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Find Student",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Student": {
+      "main": [
+        [
+          {
+            "node": "Save Homework Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Student Not Found Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Homework Review": {
+      "main": [
+        [
+          {
+            "node": "Download Github",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Save Homework Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Github": {
+      "main": [
+        [
+          {
+            "node": "AI Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Download Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Check": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Export to Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export to Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Success Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Validation Error": {
+      "main": [
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "fcb79a93-6d9b-4b39-b528-2978e0fcb6dc",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+  },
+  "id": "kP1CpZkGbKRAT3K0",
+  "tags": [
+    {
+      "createdAt": "2025-09-07T20:41:34.535Z",
+      "updatedAt": "2025-09-07T20:41:34.535Z",
+      "id": "ip87qz4uk8Ogh5AQ",
+      "name": "homework-submission"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 249, 250, 251;
+  --primary-rgb: 99, 102, 241;
+  --accent-rgb: 217, 70, 239;
+}
+
+.dark {
+  --foreground-rgb: 241, 245, 249;
+  --background-rgb: 2, 6, 23;
+  --primary-rgb: 129, 140, 248;
+  --accent-rgb: 232, 121, 249;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "name": "Update Student Info",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://192.168.1.89:8000/api/google_sheet/export-student-attendance?student_id={{ $json.student.id }}&sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        0
+      ],
+      "id": "0ee681b3-7f92-4ed2-bd06-0ddd50c0366d",
+      "name": "Export Google Sheet",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "queue": "checkin",
+        "options": {
+          "parallelMessages": 1
+        }
+      },
+      "type": "n8n-nodes-base.rabbitmqTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "09bd208b-e5ce-4cd9-b617-96bf83fc466d",
+      "name": "RabbitMQ Trigger",
+      "credentials": {
+        "rabbitmq": {
+          "id": "u18D4bf4LbnHc2pv",
+          "name": "RabbitMQ account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import json\n\nprint(\"Start\")\ninput_data = items[0]['json']\n    \n    # Получаем значение из поля \"content\"\ncontent = input_data.get('content', '{}')\ntext = json.loads(content)\nreturn [text]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "933c1cea-e61d-45f4-bc00-1ee91c962511",
+      "name": "Code",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        0
+      ],
+      "id": "ae1ee4a5-a0d5-4795-bb94-80210cd4fb3a",
+      "name": "Wait",
+      "webhookId": "49be104c-4f81-4b59-b9da-5b738ca4c3b1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "RabbitMQ Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Export Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1e4a47d7-8547-4f5f-8b2a-fe60da13156c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+  },
+  "id": "flkE4Rm0TfEpI5lF",
+  "tags": []
+}

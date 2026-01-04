@@ -1,0 +1,63 @@
+{
+  "name": "Import rating from Google",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -272,
+        0
+      ],
+      "id": "1ba276e8-d059-4581-a756-dc458973066d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.89:8000/api/google_sheet/import-ratings?sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -64,
+        0
+      ],
+      "id": "3035d34b-d235-49a6-bba1-3f067f3d303e",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "f4825a44-f4e9-4bd1-80bd-b7df964f70b6",
+  "meta": {
+    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+  },
+  "id": "ewloVFslG6QP2h00",
+  "tags": []
+}

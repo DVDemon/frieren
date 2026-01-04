@@ -1,0 +1,13 @@
+fastapi
+requests
+pydantic
+aiogram
+sqlalchemy
+sqlalchemy_utils
+psycopg2-binary
+python-multipart
+uvicorn
+pydantic[email]
+openai
+gspread
+oauth2client

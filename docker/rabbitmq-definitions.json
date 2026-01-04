@@ -1,0 +1,12 @@
+{
+  "queues": [
+    {
+      "name": "checkin",
+      "vhost": "/",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
+    }
+  ]
+}
+

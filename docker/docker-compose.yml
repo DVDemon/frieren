@@ -1,0 +1,333 @@
+services:
+
+  frontend:
+    image: ddzuba/frieren_frontend:arm64
+    container_name: frieren-frontend
+    ports:
+      - 3000:3000
+    environment:
+      - BACKEND_URL=${BACKEND_URL:-http://frieren-backend:8000}
+      - NODE_ENV=${NODE_ENV:-production}
+    volumes:
+     - ../frontend/src:/app/src
+    networks:
+      - frieren_network
+  bot:
+    image: ddzuba/frieren_bot:arm64
+    container_name: frieren-bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - API_BASE_URL=http://frieren-backend:8000/api
+      - N8N_BASE_URL=http://frieren-n8n:5678
+    networks:
+      - frieren_network
+    volumes:
+      - ./resources:/app/resources
+  backend:
+    image: ddzuba/frieren_backend:arm64
+    container_name: frieren-backend
+    networks:
+      - frieren_network
+    ports:
+      - 8000:8000
+    volumes:
+      - ./google:/app/google
+    environment:
+      - DB_USER=${DB_USER:-frieren}
+      - DB_PASSWORD=${DB_PASSWORD:-frieren}
+      - DB_HOST=${DB_HOST:-frieren_db}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-frieren_db}
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:15
+    platform: linux/arm64
+    container_name: frieren_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-frieren}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-frieren}
+      POSTGRES_DB: ${POSTGRES_DB:-frieren_db}
+    ports:
+      - 5432:5432
+    networks:
+      - frieren_network
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frieren -d frieren_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: frieren_rabbitmq
+    networks:
+      - frieren_network
+    ports:
+      - 15672:15672  # Management UI
+      - 5672:5672    # AMQP port
+    environment:
+      # Автоматический импорт определений при первом запуске (только если БД пуста)
+      - RABBITMQ_DEFINITIONS_FILE=/etc/rabbitmq/definitions.json
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-guest}
+    volumes:
+      # Файл с определениями (очередь checkin создается автоматически при первом запуске)
+      - ./rabbitmq-definitions.json:/etc/rabbitmq/definitions.json:ro
+      # Постоянное хранилище для данных RabbitMQ
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  # Init контейнер для гарантированного создания очереди checkin через Management API
+  rabbitmq-init:
+    image: curlimages/curl:latest
+    container_name: frieren_rabbitmq_init
+    networks:
+      - frieren_network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_DEFAULT_USER:-guest}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_DEFAULT_PASS:-guest}
+    command: >
+      sh -c "
+        RABBITMQ_USER=\"$${RABBITMQ_DEFAULT_USER:-guest}\" &&
+        RABBITMQ_PASS=\"$${RABBITMQ_DEFAULT_PASS:-guest}\" &&
+        echo 'Waiting for RabbitMQ Management API...' &&
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+          if curl -sf -u \"$$RABBITMQ_USER:$$RABBITMQ_PASS\" http://rabbitmq:15672/api/overview > /dev/null 2>&1; then
+            echo 'RabbitMQ Management API is ready!' &&
+            break
+          fi &&
+          echo 'Waiting... (attempt $$i/10)' &&
+          sleep 3
+        done &&
+        echo 'Creating queue checkin via Management API...' &&
+        HTTP_CODE=$$(curl -s -o /tmp/response -w '%{http_code}' -u \"$$RABBITMQ_USER:$$RABBITMQ_PASS\" -X PUT -H 'Content-Type: application/json' -d '{\"durable\":true,\"auto_delete\":false}' http://rabbitmq:15672/api/queues/%2F/checkin) &&
+        if [ \"$$HTTP_CODE\" = \"201\" ] || [ \"$$HTTP_CODE\" = \"204\" ]; then
+          echo 'Queue checkin created successfully! (HTTP $$HTTP_CODE)'
+        elif [ \"$$HTTP_CODE\" = \"200\" ]; then
+          echo 'Queue checkin already exists (HTTP $$HTTP_CODE)'
+        else
+          echo 'Error creating queue. HTTP code: $$HTTP_CODE'
+          cat /tmp/response
+        fi &&
+        echo 'Verifying queue...' &&
+        curl -sf -u \"$$RABBITMQ_USER:$$RABBITMQ_PASS\" http://rabbitmq:15672/api/queues/%2F/checkin > /dev/null 2>&1 &&
+        echo 'Queue checkin verified successfully!' ||
+        echo 'Warning: Could not verify queue checkin'
+      "
+    restart: "no"
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: frieren-n8n
+    networks:
+      - frieren_network
+    ports:
+      - 5678:5678
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_USER_MANAGEMENT_DISABLED=false
+      # Автоматическое создание первого пользователя (пропуск установки)
+      # Примечание: эти переменные могут не работать в некоторых версиях N8N
+      # Пользователь будет создан через init-скрипт через API
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_LOG_LEVEL=info
+      - N8N_DATABASE_TYPE=postgresdb
+      - N8N_DATABASE_POSTGRESDB_HOST=${N8N_DATABASE_HOST:-frieren_db}
+      - N8N_DATABASE_POSTGRESDB_PORT=${N8N_DATABASE_PORT:-5432}
+      - N8N_DATABASE_POSTGRESDB_DATABASE=${N8N_DATABASE_NAME:-n8n}
+      - N8N_DATABASE_POSTGRESDB_USER=${N8N_DATABASE_USER:-frieren}
+      - N8N_DATABASE_POSTGRESDB_PASSWORD=${N8N_DATABASE_PASSWORD:-frieren}
+      - N8N_DATABASE_POSTGRESDB_SCHEMA=${N8N_DATABASE_SCHEMA:-n8n_schema}
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - /var/folders:/var/folders/
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const user=process.env.N8N_BASIC_AUTH_USER||'admin';const pass=process.env.N8N_BASIC_AUTH_PASSWORD||'admin123';require('http').get('http://'+user+':'+pass+'@localhost:5678/rest/login', (r) => {process.exit([200, 401, 403].includes(r.statusCode) ? 0 : 1)}).on('error', () => process.exit(1))\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+  # Init контейнер для автоматического создания пользователя и импорта N8N workflows
+  n8n-init:
+    image: curlimages/curl:latest
+    container_name: frieren_n8n_init
+    networks:
+      - frieren_network
+    depends_on:
+      n8n:
+        condition: service_healthy
+    environment:
+      - N8N_USER=${N8N_USER}
+      - N8N_PASSWORD=${N8N_PASSWORD}
+      - N8N_FIRST_NAME=${N8N_FIRST_NAME}
+      - N8N_LAST_NAME=${N8N_LAST_NAME}
+    volumes:
+      - ./n8n_workflows:/workflows:ro
+    entrypoint: >
+      sh -c "
+        echo 'Waiting for N8N API to be ready...' &&
+        sleep 10 &&
+        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+          if curl -sf http://n8n:5678/healthz > /dev/null 2>&1 || curl -sf http://n8n:5678/rest/login > /dev/null 2>&1; then
+            echo 'N8N API is ready!' &&
+            break
+          fi &&
+          echo 'Waiting for N8N API... (attempt $$i/30)' &&
+          sleep 3
+        done &&
+        echo 'Attempting to create first user via setup endpoint (POST)...' &&
+        SETUP_DATA=\"{\\\"email\\\":\\\"$$N8N_USER\\\",\\\"password\\\":\\\"$$N8N_PASSWORD\\\",\\\"firstName\\\":\\\"$$N8N_FIRST_NAME\\\",\\\"lastName\\\":\\\"$$N8N_LAST_NAME\\\"}\" &&
+        SETUP_RESPONSE=$$(curl -s -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' -d \"$$SETUP_DATA\" http://n8n:5678/rest/owner/setup 2>&1) &&
+        SETUP_HTTP_CODE=$$(echo \"$$SETUP_RESPONSE\" | tail -n1) &&
+        SETUP_BODY=$$(echo \"$$SETUP_RESPONSE\" | head -n-1) &&
+        echo \"Setup HTTP code: $$SETUP_HTTP_CODE\" &&
+        echo \"Setup response body: $$(echo $$SETUP_BODY | head -c 300)\" &&
+        if [ \"$$SETUP_HTTP_CODE\" = \"200\" ] || [ \"$$SETUP_HTTP_CODE\" = \"201\" ]; then
+          echo '✓ User created successfully via setup endpoint!' &&
+          sleep 5
+        elif echo \"$$SETUP_BODY\" | grep -q '\"id\"' || echo \"$$SETUP_BODY\" | grep -q '\"email\"' || echo \"$$SETUP_BODY\" | grep -q '\"data\"'; then
+          echo '✓ User created or already exists (found user data in response)!' &&
+          sleep 3
+        else
+          echo '⚠ Setup endpoint returned unexpected response (HTTP $$SETUP_HTTP_CODE)' &&
+          echo '  This might mean N8N is already configured. Will try authentication...'
+        fi &&
+        echo 'Authenticating with N8N...' &&
+        echo \"Using credentials: email=$$N8N_USER\" &&
+        # Получаем сессию через login (N8N использует emailOrLdapLoginId вместо email)
+        LOGIN_DATA=\"{\\\"emailOrLdapLoginId\\\":\\\"$$N8N_USER\\\",\\\"password\\\":\\\"$$N8N_PASSWORD\\\"}\" &&
+        LOGIN_RESPONSE=$$(curl -s -c /tmp/n8n_cookies.txt -X POST -H 'Content-Type: application/json' -d \"$$LOGIN_DATA\" http://n8n:5678/rest/login) &&
+        echo \"Login response: $$(echo $$LOGIN_RESPONSE | head -c 200)\" &&
+        # Проверяем успешность аутентификации
+        AUTH_SUCCESS=false &&
+        if [ -f /tmp/n8n_cookies.txt ] && grep -q 'n8n-auth' /tmp/n8n_cookies.txt; then
+          AUTH_SUCCESS=true &&
+          echo '✓ Found n8n-auth cookie, authentication successful!'
+        elif echo \"$$LOGIN_RESPONSE\" | grep -q '\"data\"'; then
+          AUTH_SUCCESS=true &&
+          echo '✓ Found data in response, authentication successful!'
+        elif ! echo \"$$LOGIN_RESPONSE\" | grep -q '\"code\"'; then
+          AUTH_SUCCESS=true &&
+          echo '✓ No error code in response, assuming success!'
+        fi &&
+        if [ \"$$AUTH_SUCCESS\" = \"true\" ]; then
+          echo 'Authentication successful!' &&
+          echo 'Checking existing workflows...' &&
+          # Получаем список существующих workflows
+          EXISTING_WORKFLOWS_RESPONSE=$$(curl -s -b /tmp/n8n_cookies.txt http://n8n:5678/rest/workflows 2>/dev/null) &&
+          echo \"Found $$(echo \"$$EXISTING_WORKFLOWS_RESPONSE\" | grep -o '\"id\"' | wc -l || echo 0) existing workflows\" &&
+          echo 'Importing workflows from /workflows...' &&
+          for workflow_file in /workflows/*.json; do
+            if [ -f \"$$workflow_file\" ]; then
+              workflow_name=$$(basename \"$$workflow_file\" .json) &&
+              # Читаем workflow и извлекаем имя из JSON
+              WORKFLOW_DATA=$$(cat \"$$workflow_file\") &&
+              WORKFLOW_NAME_FROM_JSON=$$(echo \"$$WORKFLOW_DATA\" | grep -o '\"name\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4) &&
+              # Используем имя из JSON, если доступно, иначе имя файла
+              CHECK_NAME=\"$${WORKFLOW_NAME_FROM_JSON:-$$workflow_name}\" &&
+              echo \"Checking workflow: $$CHECK_NAME (file: $$workflow_name)...\" &&
+              # Проверяем, существует ли workflow с таким именем в списке существующих
+              WORKFLOW_EXISTS=false &&
+              if echo \"$$EXISTING_WORKFLOWS_RESPONSE\" | grep -q \"$$CHECK_NAME\"; then
+                # Более точная проверка - ищем точное совпадение имени в JSON
+                if echo \"$$EXISTING_WORKFLOWS_RESPONSE\" | grep -q '\"name\":\"'\"$$CHECK_NAME\"'\"'; then
+                  WORKFLOW_EXISTS=true
+                fi
+              fi &&
+              if [ \"$$WORKFLOW_EXISTS\" = \"true\" ]; then
+                echo \"⚠ Workflow '$$CHECK_NAME' already exists, skipping import...\"
+              else
+                echo \"Importing workflow: $$CHECK_NAME...\" &&
+                # Удаляем id, versionId, meta если они есть (простое удаление через sed)
+                WORKFLOW_DATA_CLEAN=$$(echo \"$$WORKFLOW_DATA\" | sed 's/\"id\":\"[^\"]*\",//g' | sed 's/\"versionId\":\"[^\"]*\",//g' | sed 's/\"meta\":{[^}]*},//g') &&
+                HTTP_CODE=$$(curl -s -o /tmp/response -w '%{http_code}' -b /tmp/n8n_cookies.txt -X POST -H 'Content-Type: application/json' --data-raw \"$$WORKFLOW_DATA_CLEAN\" http://n8n:5678/rest/workflows) &&
+                if [ \"$$HTTP_CODE\" = \"200\" ] || [ \"$$HTTP_CODE\" = \"201\" ]; then
+                  echo \"✓ Workflow '$$CHECK_NAME' imported successfully (HTTP $$HTTP_CODE)\"
+                elif [ \"$$HTTP_CODE\" = \"409\" ]; then
+                  echo \"⚠ Workflow '$$CHECK_NAME' already exists (HTTP 409), skipping...\"
+                elif [ \"$$HTTP_CODE\" = \"400\" ]; then
+                  echo \"⚠ Workflow '$$CHECK_NAME' has validation errors (HTTP 400)\" &&
+                  echo \"  Response: $$(cat /tmp/response | head -5)\"
+                else
+                  echo \"✗ Error importing workflow '$$CHECK_NAME': HTTP $$HTTP_CODE\" &&
+                  echo \"  Response: $$(cat /tmp/response | head -10)\"
+                fi
+              fi
+            fi
+          done &&
+          echo 'Workflow import completed!'
+        else
+          echo '✗ Authentication failed!' &&
+          echo \"Response: $$LOGIN_RESPONSE\" &&
+          echo 'Checking if setup is still possible...' &&
+          SETUP_STATUS=$$(curl -s -X GET http://n8n:5678/rest/owner/setup 2>/dev/null) &&
+          if echo \"$$SETUP_STATUS\" | grep -q '\"setup\":true' || echo \"$$SETUP_STATUS\" | grep -q '\"setup\": true'; then
+            echo 'Setup is still available. Creating user...' &&
+            SETUP_DATA=\"{\\\"email\\\":\\\"$$N8N_USER\\\",\\\"password\\\":\\\"$$N8N_PASSWORD\\\",\\\"firstName\\\":\\\"$$N8N_FIRST_NAME\\\",\\\"lastName\\\":\\\"$$N8N_LAST_NAME\\\"}\" &&
+            SETUP_RESPONSE=$$(curl -s -X POST -H 'Content-Type: application/json' -d \"$$SETUP_DATA\" http://n8n:5678/rest/owner/setup) &&
+            echo \"Setup response: $$SETUP_RESPONSE\" &&
+            sleep 3 &&
+            echo 'Retrying authentication...' &&
+            LOGIN_DATA=\"{\\\"emailOrLdapLoginId\\\":\\\"$$N8N_USER\\\",\\\"password\\\":\\\"$$N8N_PASSWORD\\\"}\" &&
+            LOGIN_RESPONSE=$$(curl -s -c /tmp/n8n_cookies.txt -X POST -H 'Content-Type: application/json' -d \"$$LOGIN_DATA\" http://n8n:5678/rest/login) &&
+            if [ -f /tmp/n8n_cookies.txt ] && grep -q 'n8n-auth' /tmp/n8n_cookies.txt; then
+              echo '✓ Authentication successful after user creation!' &&
+              echo 'Importing workflows from /workflows...' &&
+              for workflow_file in /workflows/*.json; do
+                if [ -f \"$$workflow_file\" ]; then
+                  workflow_name=$$(basename \"$$workflow_file\" .json) &&
+                  echo \"Importing workflow: $$workflow_name...\" &&
+                  WORKFLOW_DATA=$$(cat \"$$workflow_file\") &&
+                  WORKFLOW_DATA=$$(echo \"$$WORKFLOW_DATA\" | sed 's/\"id\":\"[^\"]*\",//g' | sed 's/\"versionId\":\"[^\"]*\",//g' | sed 's/\"meta\":{[^}]*},//g') &&
+                  HTTP_CODE=$$(curl -s -o /tmp/response -w '%{http_code}' -b /tmp/n8n_cookies.txt -X POST -H 'Content-Type: application/json' --data-raw \"$$WORKFLOW_DATA\" http://n8n:5678/rest/workflows) &&
+                  if [ \"$$HTTP_CODE\" = \"200\" ] || [ \"$$HTTP_CODE\" = \"201\" ]; then
+                    echo \"✓ Workflow '$$workflow_name' imported successfully (HTTP $$HTTP_CODE)\"
+                  elif [ \"$$HTTP_CODE\" = \"409\" ] || [ \"$$HTTP_CODE\" = \"400\" ]; then
+                    echo \"⚠ Workflow '$$workflow_name' might already exist (HTTP $$HTTP_CODE)\"
+                  else
+                    echo \"✗ Error importing workflow '$$workflow_name': HTTP $$HTTP_CODE\"
+                  fi
+                fi
+              done &&
+              echo 'Workflow import completed!'
+            else
+              echo '✗ Authentication still failed after user creation. Please check credentials manually.'
+            fi
+          else
+            echo '✗ Setup is not available. N8N is already configured with different credentials.' &&
+            echo '' &&
+            echo '  To reset N8N and use automatic setup:' &&
+            echo '  1. Stop containers: docker-compose down' &&
+            echo '  2. Remove N8N volume: docker volume rm docker_n8n_data' &&
+            echo '  3. Restart: docker-compose up -d' &&
+            echo '' &&
+            echo '  Or use existing credentials to login manually at http://localhost:5678'
+          fi
+        fi
+      "
+    restart: "no"
+
+volumes:
+  n8n_data:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  frieren_network:
+   driver: bridge

@@ -1,0 +1,238 @@
+{
+  "name": "CheckIn",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "checkin",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        112
+      ],
+      "id": "42721fa2-d372-4735-91c5-c22fc2ee2c20",
+      "name": "Webhook",
+      "webhookId": "f2de2495-b051-45ba-bfb8-52c17bf895d3"
+    },
+    {
+      "parameters": {
+        "url": "=http://192.168.1.89:8000/api/lectures/by-secret-code/{{ $json.body.qr_code }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d9ebeaf1-b0b0-459c-ab85-7624bd0e6efb",
+      "name": "Find Lecture"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.89:8000/api/attendance",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "student_id",
+              "value": "={{ $('Webhook').item.json.body.student.student_id }}"
+            },
+            {
+              "name": "lecture_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "present",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        176
+      ],
+      "id": "4c34976c-f60c-4a28-995d-7391c183d31f",
+      "name": "Create Attendance",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook').item.json.body.chat_id }}",
+        "text": "✅  Вы зарегистрированы на лекцию",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        112
+      ],
+      "id": "4735f1eb-e2f3-4df8-91b2-851dfd81a7d2",
+      "name": "Send a text message",
+      "webhookId": "78fe2c90-5c3e-4b52-bb49-47b42a5f8f63",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "queue": "checkin",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rabbitmq",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        112
+      ],
+      "id": "f9ac9e2f-ad26-4f64-97e4-8ba85438ae3b",
+      "name": "RabbitMQ",
+      "credentials": {
+        "rabbitmq": {
+          "id": "u18D4bf4LbnHc2pv",
+          "name": "RabbitMQ account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Webhook').item.json.body.chat_id }}",
+        "text": "К сожалению, время регистрации на лекцию истекло. Ждем вас на следующей лекции!",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        320
+      ],
+      "id": "731a3c0b-ce6a-4e61-bbe0-26955c208aca",
+      "name": "No room",
+      "webhookId": "0efa2dc6-b55f-4b2a-88a4-8fc67840f5c0",
+      "retryOnFail": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "wxVzYaBJqiovj6rE",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "localhost:5678",
+            "accept": "*/*",
+            "accept-encoding": "gzip, deflate",
+            "user-agent": "Python/3.13 aiohttp/3.12.13",
+            "content-length": "168",
+            "content-type": "application/json"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "qr_code": "XzprLQaPunlsWAjUChoFR5br!davuwre",
+            "send_date": "2025-08-22T15:29:53.141523",
+            "chat_id": 162863036,
+            "student": {
+              "student_id": 32,
+              "telegram": "@dvdzyuba"
+            }
+          },
+          "webhookUrl": "http://localhost:5678/webhook-test/checkin",
+          "executionMode": "test"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Find Lecture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lecture": {
+      "main": [
+        [
+          {
+            "node": "Create Attendance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Attendance": {
+      "main": [
+        [
+          {
+            "node": "RabbitMQ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No room",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RabbitMQ": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "920dea0b-6bc5-42cb-a832-6be6a5946108",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+  },
+  "id": "XI7fl34X6LaFkhdH",
+  "tags": []
+}
