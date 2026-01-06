@@ -4,7 +4,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://192.168.1.89:8000/api/google_sheet/export-student-attendance?student_id={{ $json.student.id }}&sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8",
+        "url": "=http://frieren-backend:8000/api/google_sheet/export-student-attendance?student_id={{ $json.student.id }}&sheet_id=1i_uGmhLZc1p90OooqE7MrKtFs4Bbfyf3meUUmxsF52k",
         "options": {
           "timeout": 30000
         }
@@ -37,7 +37,7 @@
       "name": "RabbitMQ Trigger",
       "credentials": {
         "rabbitmq": {
-          "id": "u18D4bf4LbnHc2pv",
+          "id": "xhQSHMe0wOKCOtEJ",
           "name": "RabbitMQ account"
         }
       }
@@ -112,11 +112,11 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "1e4a47d7-8547-4f5f-8b2a-fe60da13156c",
+  "versionId": "9c674e8b-ce52-4778-9037-d764ba64c6ef",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+    "instanceId": "60b668c5a1995a6ebb5339f60164e45301987b7a48402cc82c60e25e7568aa5f"
   },
-  "id": "flkE4Rm0TfEpI5lF",
+  "id": "lW8d9eN45I8bNssg",
   "tags": []
 }

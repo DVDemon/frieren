@@ -37,7 +37,7 @@
     },
     {
       "parameters": {
-        "url": "=http://192.168.1.89:8000/api/students/by-telegram/{{ $json.telegram }}",
+        "url": "=http://frieren-backend:8000/api/students/by-telegram/{{ $json.telegram }}",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -66,7 +66,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.1.89:8000/api/homework_review/",
+        "url": "http://frieren-backend:8000/api/homework_review/",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={\n  \"number\": {{ $('Validate Input').item.json.number }},\n  \"send_date\": \"{{ $now }}\",\n  \"review_date\" : \"\",\n  \"comments\" : \"{{ $('Validate Input').item.json.comment }}\",\n  \"url\": \"{{ $('Validate Input').item.json.url }}\",\n  \"student_id\": {{ $json.id }},\n  \"result\" : 0\n}",
@@ -100,7 +100,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://192.168.1.89:8000/api/homework_review/{{ $json.id }}/download",
+        "url": "=http://frieren-backend:8000/api/homework_review/{{ $json.id }}/download",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -116,7 +116,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://192.168.1.89:8000/api/homework_review/{{ $json.id }}/check-ai",
+        "url": "=http://frieren-backend:8000/api/homework_review/{{ $json.id }}/check-ai",
         "options": {
           "timeout": 30000
         }
@@ -134,7 +134,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://192.168.1.89:8000/api/google_sheet/export-review?sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8&review_id={{ $('Save Homework Review').item.json.id }}",
+        "url": "=http://frieren-backend:8000/api/google_sheet/export-review?sheet_id=14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8&review_id={{ $('Save Homework Review').item.json.id }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -454,18 +454,11 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "fcb79a93-6d9b-4b39-b528-2978e0fcb6dc",
+  "versionId": "e93f798e-2a17-4b19-88bd-9f8f01aa8827",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+    "instanceId": "60b668c5a1995a6ebb5339f60164e45301987b7a48402cc82c60e25e7568aa5f"
   },
-  "id": "kP1CpZkGbKRAT3K0",
-  "tags": [
-    {
-      "createdAt": "2025-09-07T20:41:34.535Z",
-      "updatedAt": "2025-09-07T20:41:34.535Z",
-      "id": "ip87qz4uk8Ogh5AQ",
-      "name": "homework-submission"
-    }
-  ]
+  "id": "yCVcmmCxyPgFJs4q",
+  "tags": []
 }

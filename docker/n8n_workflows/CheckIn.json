@@ -21,7 +21,7 @@
     },
     {
       "parameters": {
-        "url": "=http://192.168.1.89:8000/api/lectures/by-secret-code/{{ $json.body.qr_code }}",
+        "url": "=http://frieren-backend:8000/api/lectures/by-secret-code/{{ $json.body.qr_code }}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -36,7 +36,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://192.168.1.89:8000/api/attendance",
+        "url": "http://frieren-backend:8000/api/attendance",
         "sendBody": true,
         "bodyParameters": {
           "parameters": [
@@ -106,7 +106,7 @@
       "name": "RabbitMQ",
       "credentials": {
         "rabbitmq": {
-          "id": "u18D4bf4LbnHc2pv",
+          "id": "xhQSHMe0wOKCOtEJ",
           "name": "RabbitMQ account"
         }
       }
@@ -228,11 +228,11 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "920dea0b-6bc5-42cb-a832-6be6a5946108",
+  "versionId": "c85b71bf-1345-47a0-b6c4-210792f0b700",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "aa3618d41ecaa8d7b16ddd7eb6975d94efbeb4826526cce414adc820e71875dc"
+    "instanceId": "60b668c5a1995a6ebb5339f60164e45301987b7a48402cc82c60e25e7568aa5f"
   },
-  "id": "XI7fl34X6LaFkhdH",
+  "id": "upWc5P38FInqxH2a",
   "tags": []
 }
