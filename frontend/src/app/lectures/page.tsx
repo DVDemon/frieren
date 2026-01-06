@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Lecture, LectureCreate, LectureUpdate } from '@/types';
 import { lecturesApi } from '@/lib/api';
-import { Plus, Edit, Search, Loader2, ChevronUp, ChevronDown, Users, ExternalLink } from 'lucide-react';
+import { Plus, Edit, Search, Loader2, ChevronUp, ChevronDown, Users, ExternalLink, Download, Upload } from 'lucide-react';
 import DeleteLectureButton from '@/components/DeleteLectureButton';
 import QRCodeComponent from '@/components/QRCode';
 import LectureCapacityInfoComponent from '@/components/LectureCapacityInfo';
@@ -21,12 +21,16 @@ export default function LecturesPage() {
   } | null>(null);
   const [deletingLectures, setDeletingLectures] = useState<Set<number>>(new Set());
   const [selectedLectureForCapacity, setSelectedLectureForCapacity] = useState<number | null>(null);
+  const [uploadingPresentations, setUploadingPresentations] = useState<Set<number>>(new Set());
 
   const fetchLectures = async () => {
     try {
       setLoading(true);
       setError(null);
       const data = await lecturesApi.getAll();
+      console.log('📚 Загруженные лекции:', data);
+      console.log('📚 Пример лекции:', data[0]);
+      console.log('📚 has_presentation в первой лекции:', data[0]?.has_presentation);
       setLectures(data);
     } catch (err) {
       setError('Ошибка при загрузке лекций');
@@ -95,6 +99,74 @@ export default function LecturesPage() {
         return newSet;
       });
     }
+  };
+
+  const handleDownloadPresentation = async (lectureId: number, lectureNumber: number) => {
+    try {
+      console.log(`📥 Скачивание презентации для лекции ${lectureId} (номер ${lectureNumber})`);
+      const blob = await lecturesApi.downloadPresentation(lectureId);
+      console.log(`📥 Получен blob размером: ${blob.size} байт`);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lecture_${lectureNumber}_presentation.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      console.log(`📥 Презентация успешно скачана`);
+    } catch (err) {
+      console.error('❌ Ошибка при скачивании презентации:', err);
+      setError(`Ошибка при скачивании презентации: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+    }
+  };
+
+  const handleUploadPresentation = async (lectureId: number, file: File) => {
+    // Проверяем формат файла
+    const fileExtension = file.name.toLowerCase().split('.').pop();
+    if (fileExtension !== 'pdf' && fileExtension !== 'pptx') {
+      setError('Недопустимый формат файла. Разрешены только PDF и PPTX.');
+      return;
+    }
+
+    // Проверяем размер файла (50MB)
+    const maxSize = 50 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setError('Файл слишком большой. Максимальный размер: 50MB.');
+      return;
+    }
+
+    try {
+      setUploadingPresentations(prev => new Set(prev).add(lectureId));
+      
+      // Проверяем, есть ли уже презентация
+      const lecture = lectures.find(l => l.id === lectureId);
+      if (lecture?.has_presentation) {
+        await lecturesApi.updatePresentation(lectureId, file);
+      } else {
+        await lecturesApi.uploadPresentation(lectureId, file);
+      }
+      
+      // Обновляем список лекций для отображения обновленного has_presentation
+      await fetchLectures();
+    } catch (err) {
+      setError(`Ошибка при загрузке презентации: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+    } finally {
+      setUploadingPresentations(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(lectureId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleFileInputChange = (lectureId: number, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handleUploadPresentation(lectureId, file);
+    }
+    // Сбрасываем значение input для возможности повторной загрузки того же файла
+    event.target.value = '';
   };
 
   const handleSort = (key: 'id' | 'number' | 'topic' | 'date' | 'start_time' | 'secret_code' | 'max_student' | 'github_example') => {
@@ -325,6 +397,9 @@ export default function LecturesPage() {
                     </div>
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Презентация
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Действия
                   </th>
                 </tr>
@@ -384,6 +459,40 @@ export default function LecturesPage() {
                       ) : (
                         <span className="text-gray-400 dark:text-gray-500">Не указан</span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      <div className="flex items-center space-x-2">
+                        {lecture.has_presentation === true ? (
+                          <button
+                            onClick={() => handleDownloadPresentation(lecture.id, lecture.number)}
+                            className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 cursor-pointer"
+                            title="Скачать презентацию"
+                          >
+                            <Download className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <span className="text-gray-400 dark:text-gray-500 text-xs">Нет</span>
+                        )}
+                        <label className="cursor-pointer">
+                          <input
+                            type="file"
+                            accept=".pdf,.pptx"
+                            onChange={(e) => handleFileInputChange(lecture.id, e)}
+                            className="hidden"
+                            disabled={uploadingPresentations.has(lecture.id)}
+                          />
+                          <div 
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
+                            title={lecture.has_presentation ? "Обновить презентацию" : "Загрузить презентацию"}
+                          >
+                            {uploadingPresentations.has(lecture.id) ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Upload className="w-4 h-4" />
+                            )}
+                          </div>
+                        </label>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <div className="flex items-center space-x-2">

@@ -39,6 +39,7 @@ export interface Lecture {
   secret_code?: string | null;
   max_student?: number | null;
   github_example?: string | null;
+  has_presentation: boolean;  // есть ли прикрепленная презентация
 }
 
 export interface LectureCreate {

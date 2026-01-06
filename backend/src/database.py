@@ -47,6 +47,7 @@ class Lecture(Base):
     secret_code = Column(String, nullable=True)  # Секретный код для лекции
     max_student = Column(Integer, nullable=True)  # Максимальное количество студентов
     github_example = Column(String, nullable=True)  # Ссылка на пример в GitHub
+    presentation_blob = Column(LargeBinary, nullable=True)  # Blob для хранения презентации (PDF/PPTX)
 
 class Attendance(Base):
     __tablename__ = "attendance"

@@ -1461,27 +1461,45 @@ async def process_lecture_materials(message: types.Message, state: FSMContext):
             logger.error(f"Ошибка при проверке вместимости лекции: {e}")
             await message.answer("❌ Ошибка при проверке вместимости лекции.", reply_markup=get_main_menu())
         
-        # Затем отправляем материалы лекции (если запрашивались)
-        filename = f"lection_0{lecture_number}.pdf"
-        filepath = os.path.join("resources", filename)
-        
-        if os.path.exists(filepath):
-            # Отправляем файл
-            with open(filepath, 'rb') as file:
-                await message.answer_document(
-                    types.BufferedInputFile(
-                        file.read(),
-                        filename=filename
-                    ),
-                    caption=f"📖 Материалы лекции №{lecture_number}"
-                )
-            
-            logger.info(f"Отправлены материалы лекции {lecture_number} пользователю {message.from_user.id}")
-            
-        else:
+        # Затем отправляем материалы лекции через API
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{API_BASE_URL}/lectures/by-number/{lecture_number}/presentation", timeout=aiohttp.ClientTimeout(total=30)) as response:
+                    if response.status == 200:
+                        # Получаем содержимое файла
+                        file_content = await response.read()
+                        
+                        # Определяем имя файла из заголовков или используем стандартное
+                        content_disposition = response.headers.get('Content-Disposition', '')
+                        filename = f"lecture_{lecture_number}_presentation.pdf"
+                        if 'filename=' in content_disposition:
+                            filename = content_disposition.split('filename=')[1].strip('"')
+                        
+                        # Отправляем файл
+                        await message.answer_document(
+                            types.BufferedInputFile(
+                                file_content,
+                                filename=filename
+                            ),
+                            caption=f"📖 Материалы лекции №{lecture_number}"
+                        )
+                        
+                        logger.info(f"Отправлены материалы лекции {lecture_number} пользователю {message.from_user.id}")
+                    elif response.status == 404:
+                        await message.answer(
+                            f"📝 Материалы для лекции №{lecture_number} не найдены.\n"
+                            f"Пожалуйста, обратитесь к преподавателю.",
+                            reply_markup=get_main_menu()
+                        )
+                    else:
+                        await message.answer(
+                            f"❌ Ошибка при получении материалов лекции №{lecture_number}.",
+                            reply_markup=get_main_menu()
+                        )
+        except Exception as e:
+            logger.error(f"Ошибка при получении материалов лекции: {e}")
             await message.answer(
-                f"📝 Материалы для лекции №{lecture_number} не найдены.\n"
-                f"Пожалуйста, обратитесь к преподавателю.",
+                f"❌ Ошибка при получении материалов лекции №{lecture_number}.",
                 reply_markup=get_main_menu()
             )
         

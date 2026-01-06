@@ -21,8 +21,6 @@ services:
       - N8N_BASE_URL=http://frieren-n8n:5678
     networks:
       - frieren_network
-    volumes:
-      - ./resources:/app/resources
   backend:
     image: ddzuba/frieren_backend:arm64
     container_name: frieren-backend

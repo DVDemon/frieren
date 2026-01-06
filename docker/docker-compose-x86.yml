@@ -1,10 +1,7 @@
 services:
 
   frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-      network: host
+    image: ddzuba/frieren_frontend:x86
     container_name: frieren-frontend
     ports:
       - 3000:3000
@@ -16,9 +13,7 @@ services:
     networks:
       - frieren_network
   bot:
-    build:
-      context: ../bot
-      network: host
+    image: ddzuba/frieren_bot:x86
     container_name: frieren-bot
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
@@ -27,9 +22,7 @@ services:
     networks:
       - frieren_network
   backend:
-    build:
-      context: ../backend
-      dockerfile: Dockerfile
+    image: ddzuba/frieren_backend:x86
     container_name: frieren-backend
     networks:
       - frieren_network
@@ -47,7 +40,6 @@ services:
       - postgres
   postgres:
     image: postgres:15
-    platform: linux/arm64
     container_name: frieren_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-frieren}
@@ -183,7 +175,7 @@ services:
       - N8N_FIRST_NAME=${N8N_FIRST_NAME}
       - N8N_LAST_NAME=${N8N_LAST_NAME}
     volumes:
-      - ../n8n_workflows:/workflows:ro
+      - ./n8n_workflows:/workflows:ro
     entrypoint: >
       sh -c "
         echo 'Waiting for N8N API to be ready...' &&

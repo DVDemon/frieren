@@ -36,6 +36,7 @@ class LectureInfo(TypedDict):
     secret_code: str | None  # секретный код лекции
     max_student: int | None  # максимальное количество студентов
     github_example: str | None  # ссылка на пример в GitHub
+    has_presentation: bool  # есть ли прикрепленная презентация
 
 class AttendanceInfo(TypedDict):
     id: int
