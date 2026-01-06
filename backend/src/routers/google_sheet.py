@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, select
 import logging
+import os
+import traceback
 import gspread
 from typing import Dict, Any, List
 from database import get_db, Student, Teacher, TeacherGroup, Lecture, Attendance, Homework, HomeworkReview, StudentHomeworkVariant, ExamGrade
@@ -9,12 +11,18 @@ from models import StudentInfo, TeacherInfo, TeacherGroupInfo, LectureInfo, Atte
 
 from oauth2client.service_account import ServiceAccountCredentials
 import gspread
+from gspread.exceptions import WorksheetNotFound
 
 logger = logging.getLogger(__name__)
 
 JSON_KEYFILE        = 'google/credentials.json'
 scope               = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 credentials         = ServiceAccountCredentials.from_json_keyfile_name(JSON_KEYFILE, scope)
+
+# Получаем sheet_id из переменных окружения
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
+if not GOOGLE_SHEET_ID:
+    raise ValueError("GOOGLE_SHEET_ID environment variable is not set")
 
 STUDENT_NAMES = "Студенты"
 LECTIONS_NAMES = "Лекции"
@@ -23,24 +31,39 @@ EXAM_NAMES = "exam"
 
 router = APIRouter(prefix="/api/google_sheet", tags=["export"])
 
-# Имя аккаунта myserviceaccount@xenon-tuner-451608-m8.iam.gserviceaccount.com
-# sheet_id для тестов 14a8GKnza7IFAOV2gIfupEhBKaPE4SYZwiaQ4a1c_el8
-
 @router.get("/all")
-def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def export_all_google_sheet(db: Session = Depends(get_db)) -> Dict[str, Any]:
     # try to connect to google sheet
     data = dict()
 
     try:
+        logger.info(f"Starting export_all_google_sheet. GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID[:20]}..." if GOOGLE_SHEET_ID else "GOOGLE_SHEET_ID is not set")
+        
+        logger.debug("Authorizing gspread client...")
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
-        sheet = spreadsheet.worksheet(STUDENT_NAMES)
+        
+        logger.debug(f"Opening spreadsheet by key: {GOOGLE_SHEET_ID}")
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
+        
+        logger.debug(f"Getting worksheet: {STUDENT_NAMES}")
+        try:
+            sheet = spreadsheet.worksheet(STUDENT_NAMES)
+            logger.debug(f"Found existing {STUDENT_NAMES} worksheet")
+        except WorksheetNotFound:
+            logger.warning(f"Worksheet {STUDENT_NAMES} not found, creating new one")
+            sheet = spreadsheet.add_worksheet(title=STUDENT_NAMES, rows=1000, cols=50)
+            logger.info(f"Created new {STUDENT_NAMES} worksheet")
+        
         sheet_data = sheet.get_all_values()
+        logger.debug(f"Retrieved {len(sheet_data)} rows from {STUDENT_NAMES} sheet")
 
         # Получаем всех студентов
+        logger.debug("Querying students from database...")
         students = db.query(Student).filter(Student.is_deleted == False).all()
+        logger.info(f"Found {len(students)} students")
         
         # Получаем всех преподавателей и их группы
+        logger.debug("Querying teacher groups from database...")
         teacher_groups = db.query(TeacherGroup).all()
         teachers = {tg.group_number: tg.teacher_id for tg in teacher_groups}
         teacher_names = {}
@@ -48,16 +71,21 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
             teacher = db.query(Teacher).filter(Teacher.id == tg.teacher_id, Teacher.is_deleted == False).first()
             if teacher:
                 teacher_names[tg.group_number] = teacher.full_name
+        logger.debug(f"Found {len(teacher_names)} teacher groups")
         
         # Получаем все домашние задания
+        logger.debug("Querying homeworks from database...")
         homeworks = db.query(Homework).all()
+        logger.info(f"Found {len(homeworks)} homeworks")
         
         # Получаем варианты домашних заданий для студентов
+        logger.debug("Querying student homework variants from database...")
         student_variants = db.query(StudentHomeworkVariant).all()
         variants_dict = {}
         for variant in student_variants:
             key = (variant.student_id, variant.homework_id)
             variants_dict[key] = variant.variant_number
+        logger.debug(f"Found {len(student_variants)} student homework variants")
 
         # Формируем данные студентов с дополнительной информацией
         students_data = []
@@ -120,19 +148,25 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
                 student_data[f"homework_{homework.number}_variant"] = homework_variants[i]
             
             students_data.append(student_data)
-            
+        
+        logger.info(f"Processed {len(students_data)} students with their data")
 
         # Записываем students_data в data (в Google Sheet)
         # Сначала очищаем существующие данные (кроме заголовков)
+        logger.debug("Preparing sheet for update...")
         if sheet_data and len(sheet_data) > 1:
+            logger.debug(f"Resizing sheet from {len(sheet_data)} rows to 1 row (keeping header)")
             sheet.resize(rows=1)  # Оставляем только заголовки
 
         # Формируем заголовки
+        logger.debug("Building headers...")
         headers = ["id", "full_name", "telegram", "github", "group_number", "teacher", "total_homework_score", "ai_percentage", "attendance_count"]
         for homework in homeworks:
             headers.append(f"homework_{homework.number}_variant")
+        logger.debug(f"Headers: {headers}")
 
         # Формируем строки для записи
+        logger.debug("Building rows for update...")
         rows = [headers]
         for student_data in students_data:
             row = [
@@ -152,15 +186,22 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
             rows.append(row)
 
         # Записываем все строки в лист студентов
+        logger.info(f"Updating {STUDENT_NAMES} sheet with {len(rows)} rows (including header)")
         sheet.update("A1", rows)
+        logger.info(f"Successfully updated {STUDENT_NAMES} sheet")
         
         # Теперь заполняем лист с данными о посещаемости лекций
         try:
+            logger.debug(f"Processing {LECTIONS_NAMES} sheet...")
             # Получаем или создаем лист "Лекции"
             try:
+                logger.debug(f"Trying to get existing {LECTIONS_NAMES} worksheet...")
                 lectures_sheet = spreadsheet.worksheet(LECTIONS_NAMES)
-            except:
+                logger.debug(f"Found existing {LECTIONS_NAMES} worksheet")
+            except WorksheetNotFound:
+                logger.warning(f"Worksheet {LECTIONS_NAMES} not found, creating new one")
                 lectures_sheet = spreadsheet.add_worksheet(title=LECTIONS_NAMES, rows=1000, cols=50)
+                logger.info(f"Created new {LECTIONS_NAMES} worksheet")
             
             # Получаем все лекции
             lectures = db.query(Lecture).order_by(Lecture.number).all()
@@ -193,20 +234,30 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
                 lectures_rows.append(row)
             
             # Записываем данные в лист лекций
+            logger.info(f"Updating {LECTIONS_NAMES} sheet with {len(lectures_rows)} rows")
             lectures_sheet.clear()
             lectures_sheet.update("A1", lectures_rows)
+            logger.info(f"Successfully updated {LECTIONS_NAMES} sheet")
             
         except Exception as e:
-            logger.warning(f"Error creating lectures sheet: {e}")
+            error_traceback = traceback.format_exc()
+            logger.warning(f"Error creating/updating lectures sheet: {str(e)}")
+            logger.warning(f"Error type: {type(e).__name__}")
+            logger.warning(f"Error traceback:\n{error_traceback}")
             # Продолжаем выполнение, даже если не удалось создать лист лекций
         
         # Теперь заполняем лист с данными об оценках
         try:
+            logger.debug(f"Processing {RATING_NAMES} sheet...")
             # Получаем или создаем лист "Оценки"
             try:
+                logger.debug(f"Trying to get existing {RATING_NAMES} worksheet...")
                 ratings_sheet = spreadsheet.worksheet(RATING_NAMES)
-            except:
+                logger.debug(f"Found existing {RATING_NAMES} worksheet")
+            except WorksheetNotFound:
+                logger.warning(f"Worksheet {RATING_NAMES} not found, creating new one")
                 ratings_sheet = spreadsheet.add_worksheet(title=RATING_NAMES, rows=1000, cols=50)
+                logger.info(f"Created new {RATING_NAMES} worksheet")
             
             # Получаем все проверки домашних заданий
             homework_reviews = db.query(HomeworkReview).all()
@@ -292,20 +343,30 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
                 ratings_rows.append(row)
             
             # Записываем данные в лист оценок
+            logger.info(f"Updating {RATING_NAMES} sheet with {len(ratings_rows)} rows")
             ratings_sheet.clear()
             ratings_sheet.update("A1", ratings_rows)
+            logger.info(f"Successfully updated {RATING_NAMES} sheet")
             
         except Exception as e:
-            logger.warning(f"Error creating ratings sheet: {e}")
+            error_traceback = traceback.format_exc()
+            logger.warning(f"Error creating/updating ratings sheet: {str(e)}")
+            logger.warning(f"Error type: {type(e).__name__}")
+            logger.warning(f"Error traceback:\n{error_traceback}")
             # Продолжаем выполнение, даже если не удалось создать лист оценок
         
         # Теперь заполняем лист с данными об экзаменационных оценках
         try:
+            logger.debug(f"Processing {EXAM_NAMES} sheet...")
             # Получаем или создаем лист "exam"
             try:
+                logger.debug(f"Trying to get existing {EXAM_NAMES} worksheet...")
                 exam_sheet = spreadsheet.worksheet(EXAM_NAMES)
-            except:
+                logger.debug(f"Found existing {EXAM_NAMES} worksheet")
+            except WorksheetNotFound:
+                logger.warning(f"Worksheet {EXAM_NAMES} not found, creating new one")
                 exam_sheet = spreadsheet.add_worksheet(title=EXAM_NAMES, rows=1000, cols=50)
+                logger.info(f"Created new {EXAM_NAMES} worksheet")
             
             # Получаем все экзаменационные оценки
             exam_grades = db.query(ExamGrade).all()
@@ -353,55 +414,86 @@ def export_all_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dic
                     exam_rows.append(row)
             
             # Записываем данные в лист экзаменов
+            logger.info(f"Updating {EXAM_NAMES} sheet with {len(exam_rows)} rows")
             exam_sheet.clear()
             exam_sheet.update("A1", exam_rows)
-            logger.info(f"POST /api/google_sheet/all - Created exam sheet with {len(exam_rows) - 1} rows")
+            logger.info(f"Successfully updated {EXAM_NAMES} sheet with {len(exam_rows) - 1} data rows")
             
         except Exception as e:
-            logger.warning(f"Error creating exam sheet: {e}")
+            error_traceback = traceback.format_exc()
+            logger.warning(f"Error creating/updating exam sheet: {str(e)}")
+            logger.warning(f"Error type: {type(e).__name__}")
+            logger.warning(f"Error traceback:\n{error_traceback}")
             # Продолжаем выполнение, даже если не удалось создать лист экзаменов
         
         # Возвращаем структурированный ответ
+        lectures_count = len(lectures) if 'lectures' in locals() else 0
+        reviews_count = len(homework_reviews) if 'homework_reviews' in locals() else 0
+        exam_grades_count = len(exam_grades) if 'exam_grades' in locals() else 0
+        
+        logger.info(f"Export completed successfully. Students: {len(students_data)}, Homeworks: {len(homeworks)}, Lectures: {lectures_count}, Reviews: {reviews_count}, Exam grades: {exam_grades_count}")
+        
         data = {
             "success": True,
             "message": "Data exported successfully to Google Sheet",
             "students_count": len(students_data),
             "homeworks_count": len(homeworks),
-            "lectures_count": len(lectures) if 'lectures' in locals() else 0,
-            "reviews_count": len(homework_reviews) if 'homework_reviews' in locals() else 0,
-            "exam_grades_count": len(exam_grades) if 'exam_grades' in locals() else 0,
+            "lectures_count": lectures_count,
+            "reviews_count": reviews_count,
+            "exam_grades_count": exam_grades_count,
             "sheet_data": rows
         }
 
     except Exception as e:
-        logger.error(f"Error exporting all google sheet: {e}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error exporting all google sheet: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback:\n{error_traceback}")
+        logger.error(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        logger.error(f"STUDENT_NAMES: {STUDENT_NAMES}")
+        logger.error(f"LECTIONS_NAMES: {LECTIONS_NAMES}")
+        logger.error(f"RATING_NAMES: {RATING_NAMES}")
+        logger.error(f"EXAM_NAMES: {EXAM_NAMES}")
         raise HTTPException(status_code=500, detail=str(e))
 
         
     return data
 
 @router.post("/export-student-attendance")
-def export_student_attendance_to_google_sheet(sheet_id: str, student_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def export_student_attendance_to_google_sheet(student_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Экспортирует информацию о посещаемости лекций одного студента в Google Sheet
     """
     data = dict()
     
     try:
+        logger.info(f"Starting export_student_attendance_to_google_sheet for student_id: {student_id}")
+        
         # Находим студента в базе с таким id
+        logger.debug(f"Querying student with id: {student_id}")
         student = db.query(Student).filter(Student.id == student_id, Student.is_deleted == False).first()
         if not student:
+            logger.warning(f"Student with id {student_id} not found")
             raise HTTPException(status_code=404, detail=f"Student with id {student_id} not found")
         
+        logger.debug(f"Found student: {student.full_name} (telegram: {student.telegram})")
+        
         # Подключаемся к Google Sheet
+        logger.debug("Authorizing gspread client...")
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
+        
+        logger.debug(f"Opening spreadsheet by key: {GOOGLE_SHEET_ID}")
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Получаем лист "Лекции"
         try:
+            logger.debug(f"Trying to get existing {LECTIONS_NAMES} worksheet...")
             sheet = spreadsheet.worksheet(LECTIONS_NAMES)
-        except:
+            logger.debug(f"Found existing {LECTIONS_NAMES} worksheet")
+        except WorksheetNotFound:
+            logger.warning(f"Worksheet {LECTIONS_NAMES} not found, creating new one")
             sheet = spreadsheet.add_worksheet(title=LECTIONS_NAMES, rows=1000, cols=50)
+            logger.info(f"Created new {LECTIONS_NAMES} worksheet")
         
         # Получаем все данные из листа
         sheet_data = sheet.get_all_values()
@@ -479,34 +571,54 @@ def export_student_attendance_to_google_sheet(sheet_id: str, student_id: int, db
             "action": action
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error exporting student attendance {student_id} to google sheet: {e}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error exporting student attendance {student_id} to google sheet: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback:\n{error_traceback}")
+        logger.error(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        logger.error(f"LECTIONS_NAMES: {LECTIONS_NAMES}")
         raise HTTPException(status_code=500, detail=str(e))
     
     return data
 
 @router.post("/export-student")
-def export_student_to_google_sheet(sheet_id: str, student_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def export_student_to_google_sheet(student_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Экспортирует информацию по одному студенту в Google Sheet
     """
     data = dict()
     
     try:
+        logger.info(f"Starting export_student_to_google_sheet for student_id: {student_id}")
+        
         # Находим студента в базе с таким id
+        logger.debug(f"Querying student with id: {student_id}")
         student = db.query(Student).filter(Student.id == student_id, Student.is_deleted == False).first()
         if not student:
+            logger.warning(f"Student with id {student_id} not found")
             raise HTTPException(status_code=404, detail=f"Student with id {student_id} not found")
         
+        logger.debug(f"Found student: {student.full_name} (telegram: {student.telegram}, group: {student.group_number})")
+        
         # Подключаемся к Google Sheet
+        logger.debug("Authorizing gspread client...")
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
+        
+        logger.debug(f"Opening spreadsheet by key: {GOOGLE_SHEET_ID}")
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Получаем лист "Студенты"
         try:
+            logger.debug(f"Trying to get existing {STUDENT_NAMES} worksheet...")
             sheet = spreadsheet.worksheet(STUDENT_NAMES)
-        except:
+            logger.debug(f"Found existing {STUDENT_NAMES} worksheet")
+        except WorksheetNotFound:
+            logger.warning(f"Worksheet {STUDENT_NAMES} not found, creating new one")
             sheet = spreadsheet.add_worksheet(title=STUDENT_NAMES, rows=1000, cols=50)
+            logger.info(f"Created new {STUDENT_NAMES} worksheet")
         
         # Получаем все данные из листа
         sheet_data = sheet.get_all_values()
@@ -628,39 +740,63 @@ def export_student_to_google_sheet(sheet_id: str, student_id: int, db: Session =
             "action": action
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error exporting student {student_id} to google sheet: {e}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error exporting student {student_id} to google sheet: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback:\n{error_traceback}")
+        logger.error(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        logger.error(f"STUDENT_NAMES: {STUDENT_NAMES}")
         raise HTTPException(status_code=500, detail=str(e))
     
     return data
 
 @router.post("/export-review")
-def export_review_to_google_sheet(sheet_id: str, review_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def export_review_to_google_sheet(review_id: int, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Экспортирует конкретную проверку домашнего задания по ID в Google Sheet
     """
     data = dict()
     
     try:
+        logger.info(f"Starting export_review_to_google_sheet for review_id: {review_id}")
+        
         # Находим homework_review в базе с таким id
+        logger.debug(f"Querying homework review with id: {review_id}")
         review = db.query(HomeworkReview).filter(HomeworkReview.id == review_id).first()
         if not review:
+            logger.warning(f"Homework review with id {review_id} not found")
             raise HTTPException(status_code=404, detail=f"Homework review with id {review_id} not found")
         
+        logger.debug(f"Found review: student_id={review.student_id}, number={review.number}, url={review.url}")
+        
         # Находим студента для которого homework_review
+        logger.debug(f"Querying student with id: {review.student_id}")
         student = db.query(Student).filter(Student.id == review.student_id).first()
         if not student:
+            logger.warning(f"Student with id {review.student_id} not found")
             raise HTTPException(status_code=404, detail=f"Student with id {review.student_id} not found")
         
+        logger.debug(f"Found student: {student.full_name} (telegram: {student.telegram})")
+        
         # Подключаемся к Google Sheet
+        logger.debug("Authorizing gspread client...")
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
+        
+        logger.debug(f"Opening spreadsheet by key: {GOOGLE_SHEET_ID}")
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Получаем или создаем лист "Оценки"
         try:
+            logger.debug(f"Trying to get existing {RATING_NAMES} worksheet...")
             ratings_sheet = spreadsheet.worksheet(RATING_NAMES)
-        except:
+            logger.debug(f"Found existing {RATING_NAMES} worksheet")
+        except WorksheetNotFound:
+            logger.warning(f"Worksheet {RATING_NAMES} not found, creating new one")
             ratings_sheet = spreadsheet.add_worksheet(title=RATING_NAMES, rows=1000, cols=50)
+            logger.info(f"Created new {RATING_NAMES} worksheet")
         
         # Получаем все данные из листа
         ratings_data = ratings_sheet.get_all_values()
@@ -755,28 +891,45 @@ def export_review_to_google_sheet(sheet_id: str, review_id: int, db: Session = D
             "grade_updated": bool(review.result and review.result > 0)
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error exporting review {review_id} to google sheet: {e}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error exporting review {review_id} to google sheet: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback:\n{error_traceback}")
+        logger.error(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        logger.error(f"RATING_NAMES: {RATING_NAMES}")
         raise HTTPException(status_code=500, detail=str(e))
     
     return data
 
 @router.post("/import-ratings")
-def import_ratings_from_google_sheet(sheet_id: str, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def import_ratings_from_google_sheet(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
     Импортирует данные о проверках домашних заданий из Google Sheet
     """
     data = dict()
     
     try:
+        logger.info("Starting import_ratings_from_google_sheet")
+        logger.debug(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        
+        logger.debug("Authorizing gspread client...")
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
+        
+        logger.debug(f"Opening spreadsheet by key: {GOOGLE_SHEET_ID}")
+        spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
         
         # Получаем лист "Оценки"
         try:
+            logger.debug(f"Trying to get existing {RATING_NAMES} worksheet...")
             ratings_sheet = spreadsheet.worksheet(RATING_NAMES)
-        except:
-            raise HTTPException(status_code=404, detail=f"Sheet '{RATING_NAMES}' not found")
+            logger.debug(f"Found existing {RATING_NAMES} worksheet")
+        except WorksheetNotFound:
+            logger.warning(f"Worksheet {RATING_NAMES} not found, creating new one")
+            ratings_sheet = spreadsheet.add_worksheet(title=RATING_NAMES, rows=1000, cols=50)
+            logger.info(f"Created new {RATING_NAMES} worksheet")
         
         # Получаем данные из листа
         ratings_data = ratings_sheet.get_all_values()
@@ -936,7 +1089,12 @@ def import_ratings_from_google_sheet(sheet_id: str, db: Session = Depends(get_db
         }
         
     except Exception as e:
-        logger.error(f"Error importing ratings from google sheet: {e}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"Error importing ratings from google sheet: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error traceback:\n{error_traceback}")
+        logger.error(f"GOOGLE_SHEET_ID: {GOOGLE_SHEET_ID}")
+        logger.error(f"RATING_NAMES: {RATING_NAMES}")
         raise HTTPException(status_code=500, detail=str(e))
     
     return data

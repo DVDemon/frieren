@@ -6,28 +6,21 @@ import { exportApi } from '@/lib/api';
 
 export default function GoogleSheetImportButton() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [sheetId, setSheetId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const handleImport = async () => {
-    if (!sheetId.trim()) {
-      setError('Пожалуйста, введите ID таблицы');
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     setSuccess(null);
 
     try {
-      const result = await exportApi.importRatingsFromGoogleSheet(sheetId);
+      const result = await exportApi.importRatingsFromGoogleSheet();
       setSuccess(`Данные успешно импортированы! Обработано ${result.imported_count} записей, обновлено ${result.updated_count}, создано ${result.created_count}.`);
-      setSheetId('');
       setTimeout(() => setIsModalOpen(false), 3000);
     } catch (err) {
-      setError('Ошибка при импорте данных. Проверьте ID таблицы и попробуйте снова.');
+      setError('Ошибка при импорте данных. Проверьте настройки и попробуйте снова.');
       console.error('Import error:', err);
     } finally {
       setIsLoading(false);
@@ -52,21 +45,9 @@ export default function GoogleSheetImportButton() {
               Импорт оценок из Google Sheet
             </h3>
             
-            <div className="mb-4">
-              <label htmlFor="sheetId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                ID таблицы Google Sheet
-              </label>
-              <input
-                type="text"
-                id="sheetId"
-                value={sheetId}
-                onChange={(e) => setSheetId(e.target.value)}
-                placeholder="Введите ID таблицы..."
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                disabled={isLoading}
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                ID можно найти в URL таблицы: https://docs.google.com/spreadsheets/d/<strong>ID_ТАБЛИЦЫ</strong>/edit
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-md">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Данные будут импортированы из настроенной Google Sheet таблицы.
               </p>
             </div>
 
@@ -109,7 +90,6 @@ export default function GoogleSheetImportButton() {
               <button
                 onClick={() => {
                   setIsModalOpen(false);
-                  setSheetId('');
                   setError(null);
                   setSuccess(null);
                 }}
@@ -120,7 +100,7 @@ export default function GoogleSheetImportButton() {
               </button>
               <button
                 onClick={handleImport}
-                disabled={isLoading || !sheetId.trim()}
+                disabled={isLoading}
                 className="inline-flex items-center px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-md transition-colors"
               >
                 {isLoading ? (

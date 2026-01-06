@@ -43,6 +43,7 @@ services:
       - DB_HOST=${DB_HOST:-frieren_db}
       - DB_PORT=${DB_PORT:-5432}
       - DB_NAME=${DB_NAME:-frieren_db}
+      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
     depends_on:
       - postgres
   postgres:

@@ -748,7 +748,6 @@ function ReviewForm({ review, onSubmit, onCancel, isEditing, onRefresh }: Review
   const [isCheckingAI, setIsCheckingAI] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [isExportingToSheet, setIsExportingToSheet] = useState(false);
-  const [sheetId, setSheetId] = useState('');
   const [showExportModal, setShowExportModal] = useState(false);
 
   // Функция для получения актуального значения AI
@@ -868,22 +867,16 @@ function ReviewForm({ review, onSubmit, onCancel, isEditing, onRefresh }: Review
       return;
     }
 
-    if (!sheetId.trim()) {
-      alert('Пожалуйста, введите ID таблицы Google Sheet');
-      return;
-    }
-
     try {
       setIsExportingToSheet(true);
-      const result = await exportApi.exportReviewToGoogleSheet(sheetId, review.id);
+      const result = await exportApi.exportReviewToGoogleSheet(review.id);
       
       alert(`Проверка успешно экспортирована в Google Sheet!\nСтудент: ${result.student_name}\nДомашнее задание: №${result.homework_number}\nСтрока: ${result.row_updated}`);
       
       setShowExportModal(false);
-      setSheetId('');
     } catch (error) {
       console.error('Error exporting to Google Sheet:', error);
-      alert('Ошибка при экспорте в Google Sheet. Проверьте ID таблицы и попробуйте снова.');
+      alert('Ошибка при экспорте в Google Sheet. Проверьте настройки и попробуйте снова.');
     } finally {
       setIsExportingToSheet(false);
     }
@@ -1244,21 +1237,9 @@ function ReviewForm({ review, onSubmit, onCancel, isEditing, onRefresh }: Review
               Экспорт в Google Sheet
             </h3>
             
-            <div className="mb-4">
-              <label htmlFor="sheetId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                ID таблицы Google Sheet
-              </label>
-              <input
-                type="text"
-                id="sheetId"
-                value={sheetId}
-                onChange={(e) => setSheetId(e.target.value)}
-                placeholder="Введите ID таблицы..."
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                disabled={isExportingToSheet}
-              />
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                ID можно найти в URL таблицы: https://docs.google.com/spreadsheets/d/<strong>ID_ТАБЛИЦЫ</strong>/edit
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-md">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Данные будут экспортированы в настроенную Google Sheet таблицу.
               </p>
             </div>
 
@@ -1290,7 +1271,6 @@ function ReviewForm({ review, onSubmit, onCancel, isEditing, onRefresh }: Review
               <button
                 onClick={() => {
                   setShowExportModal(false);
-                  setSheetId('');
                 }}
                 className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition-colors"
                 disabled={isExportingToSheet}
@@ -1299,7 +1279,7 @@ function ReviewForm({ review, onSubmit, onCancel, isEditing, onRefresh }: Review
               </button>
               <button
                 onClick={handleExportToGoogleSheet}
-                disabled={isExportingToSheet || !sheetId.trim()}
+                disabled={isExportingToSheet}
                 className="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white text-sm font-medium rounded-md transition-colors"
               >
                 {isExportingToSheet ? (

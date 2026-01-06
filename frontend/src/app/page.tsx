@@ -9,7 +9,11 @@ import {
   FileText, 
   Clock,
   AlertCircle,
-  GraduationCap
+  GraduationCap,
+  ExternalLink,
+  FileSpreadsheet,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 import { studentsApi, lecturesApi, homeworkApi, homeworkReviewApi, teachersApi } from '@/lib/api';
 import { Student, Lecture, Homework, HomeworkReview, Teacher } from '@/types';
@@ -26,10 +30,13 @@ export default function Home() {
     homework: 0,
     pendingReviews: 0,
     teachers: 0,
+    studentsWithWork: 0,
+    studentsWithoutWork: 0,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [backendUrl, setBackendUrl] = useState<string>('');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState<string | null>(null);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [homeworks, setHomeworks] = useState<Homework[]>([]);
 
@@ -42,9 +49,26 @@ export default function Home() {
         const response = await fetch('/api/config');
         const config = await response.json();
         
+        console.log('🏠 Raw config response:', config);
+        console.log('🏠 config.googleSheetUrl type:', typeof config.googleSheetUrl);
+        console.log('🏠 config.googleSheetUrl value:', config.googleSheetUrl);
+        
         setBackendUrl(config.backendUrl);
-        console.log('🏠 Home page loaded with BACKEND_URL:', config.backendUrl);
-        console.log('🏠 Full config:', config);
+        
+        // Проверяем, что googleSheetUrl существует и не пустая строка
+        let sheetUrl: string | null = null;
+        if (config.googleSheetUrl) {
+          if (typeof config.googleSheetUrl === 'string') {
+            const trimmed = config.googleSheetUrl.trim();
+            if (trimmed.length > 0) {
+              sheetUrl = trimmed;
+            }
+          }
+        }
+        
+        console.log('🏠 sheetUrl after processing:', sheetUrl);
+        setGoogleSheetUrl(sheetUrl);
+        console.log('🏠 googleSheetUrl state set to:', sheetUrl);
       } catch (error) {
         console.error('Error getting config in Home:', error);
       }
@@ -53,22 +77,33 @@ export default function Home() {
     fetchConfig();
   }, []);
 
+  // Отслеживаем изменения googleSheetUrl для отладки
+  useEffect(() => {
+    console.log('🔍 googleSheetUrl state changed to:', googleSheetUrl);
+  }, [googleSheetUrl]);
+
   useEffect(() => {
     const fetchStats = async () => {
       try {
         setLoading(true);
         console.log('📊 Fetching stats from backend:', backendUrl);
         
-        const [students, lecturesData, homeworkData, pendingReviews, teachers] = await Promise.all([
+        const [students, lecturesData, homeworkData, pendingReviews, teachers, allReviews] = await Promise.all([
           studentsApi.getAll(),
           lecturesApi.getAll(),
           homeworkApi.getAll(),
           homeworkReviewApi.getPending(),
           teachersApi.getAll(),
+          homeworkReviewApi.getAll(),
         ]);
 
         setLectures(lecturesData);
         setHomeworks(homeworkData);
+
+        // Подсчитываем студентов с работами (уникальные student_id из reviews)
+        const studentsWithWorkSet = new Set(allReviews.map(review => review.student.id));
+        const studentsWithWork = studentsWithWorkSet.size;
+        const studentsWithoutWork = students.length - studentsWithWork;
 
         setStats({
           students: students.length,
@@ -76,6 +111,8 @@ export default function Home() {
           homework: homeworkData.length,
           pendingReviews: pendingReviews.length,
           teachers: teachers.length,
+          studentsWithWork,
+          studentsWithoutWork,
         });
       } catch (err) {
         setError('Ошибка при загрузке данных');
@@ -124,6 +161,20 @@ export default function Home() {
       color: 'bg-primary-700',
       href: '/pending-reviews',
     },
+    {
+      title: 'Студенты сдавшие хотя бы одну работу',
+      value: stats.studentsWithWork,
+      icon: <CheckCircle className="w-6 h-6" />,
+      color: 'bg-green-600',
+      href: '/students',
+    },
+    {
+      title: 'Студенты не сдавшие ни одной работы',
+      value: stats.studentsWithoutWork,
+      icon: <XCircle className="w-6 h-6" />,
+      color: 'bg-red-600',
+      href: '/students',
+    },
   ];
 
   if (loading) {
@@ -140,13 +191,35 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950">
       <div className="w-full px-4">
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             Панель управления
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
             Обзор системы управления студентами и лекциями
           </p>
+        </div>
+
+        {/* Ribbon с быстрыми действиями */}
+        <div className="mb-8 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 mr-2">Быстрые действия:</span>
+            <ImportButton />
+            <ExportButton />
+            <GoogleSheetExportButton />
+            <GoogleSheetImportButton />
+            <a
+              href={googleSheetUrl || undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+              title="Открыть Google Sheet в новой вкладке"
+            >
+              <FileSpreadsheet className="w-3 h-3 mr-1.5" />
+              Открыть Sheet
+              <ExternalLink className="w-3 h-3 ml-1.5" />
+            </a>
+          </div>
         </div>
 
         {error && (
@@ -187,20 +260,6 @@ export default function Home() {
               </div>
             </a>
           ))}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-800 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-              Быстрые действия
-            </h2>
-            <div className="flex flex-wrap gap-3">
-              <ImportButton />
-              <ExportButton />
-              <GoogleSheetExportButton />
-              <GoogleSheetImportButton />
-            </div>
-          </div>
         </div>
 
         <div className="mt-8">
