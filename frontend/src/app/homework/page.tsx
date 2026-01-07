@@ -160,6 +160,9 @@ export default function HomeworkPage() {
                     Варианты
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Тот же вариант
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Действия
                   </th>
                 </tr>
@@ -205,6 +208,17 @@ export default function HomeworkPage() {
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
                         {hw.variants_count}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                      {hw.is_same_variant ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200">
+                          Да
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                          Нет
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                       <button
@@ -263,6 +277,7 @@ function HomeworkForm({ homework, onSubmit, onCancel, isEditing }: HomeworkFormP
     assigned_date: new Date().toISOString().split('T')[0],
     due_date: new Date().toISOString().split('T')[0],
     variants_count: 1,
+    is_same_variant: false,
   });
 
   useEffect(() => {
@@ -274,6 +289,7 @@ function HomeworkForm({ homework, onSubmit, onCancel, isEditing }: HomeworkFormP
         assigned_date: homework.assigned_date,
         due_date: homework.due_date,
         variants_count: homework.variants_count,
+        is_same_variant: homework.is_same_variant,
       });
     }
   }, [homework]);
@@ -369,6 +385,23 @@ function HomeworkForm({ homework, onSubmit, onCancel, isEditing }: HomeworkFormP
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
               required
             />
+          </div>
+
+          <div>
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={formData.is_same_variant || false}
+                onChange={(e) => setFormData({ ...formData, is_same_variant: e.target.checked })}
+                className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Использовать тот же вариант, что и у предыдущего задания
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
+              При генерации вариантов будет использован тот же вариант, что и у предыдущего домашнего задания
+            </p>
           </div>
 
           <div className="flex space-x-3 pt-4">

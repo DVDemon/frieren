@@ -22,14 +22,19 @@ def get_homework(db: Session = Depends(get_db)):
         short_description=h.short_description,
         example_link=h.example_link,
         assigned_date=h.assigned_date,
-        variants_count=h.variants_count
+        variants_count=h.variants_count,
+        is_same_variant=h.is_same_variant if h.is_same_variant is not None else False
     ) for h in homeworks]
 
 @router.post("/", response_model=HomeworkInfo)
 @router.post("", response_model=HomeworkInfo)
 def add_homework(hw: HomeworkCreate, db: Session = Depends(get_db)):
     logger.info(f"POST /api/homework - Adding new homework assignment: {hw['short_description']}")
-    db_hw = Homework(**hw)
+    # Устанавливаем значение по умолчанию для is_same_variant, если оно не указано
+    homework_data = dict(hw)
+    if 'is_same_variant' not in homework_data or homework_data['is_same_variant'] is None:
+        homework_data['is_same_variant'] = False
+    db_hw = Homework(**homework_data)
     db.add(db_hw)
     db.commit()
     db.refresh(db_hw)
@@ -41,7 +46,8 @@ def add_homework(hw: HomeworkCreate, db: Session = Depends(get_db)):
         short_description=db_hw.short_description,
         example_link=db_hw.example_link,
         assigned_date=db_hw.assigned_date,
-        variants_count=db_hw.variants_count
+        variants_count=db_hw.variants_count,
+        is_same_variant=db_hw.is_same_variant if db_hw.is_same_variant is not None else False
     )
 
 @router.put("/{homework_id}", response_model=HomeworkInfo)
@@ -64,5 +70,6 @@ def update_homework(homework_id: int, hw: HomeworkUpdate, db: Session = Depends(
         short_description=db_hw.short_description,
         example_link=db_hw.example_link,
         assigned_date=db_hw.assigned_date,
-        variants_count=db_hw.variants_count
+        variants_count=db_hw.variants_count,
+        is_same_variant=db_hw.is_same_variant if db_hw.is_same_variant is not None else False
     )

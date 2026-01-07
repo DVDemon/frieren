@@ -65,6 +65,7 @@ class Homework(Base):
     example_link = Column(String, nullable=False)
     assigned_date = Column(String, nullable=False)
     variants_count = Column(Integer, nullable=False, default=1)  # Количество вариантов
+    is_same_variant = Column(Boolean, nullable=True, default=False)  # Использовать тот же вариант, что и у предыдущего задания
 
 class HomeworkReview(Base):
     __tablename__ = "homework_review"

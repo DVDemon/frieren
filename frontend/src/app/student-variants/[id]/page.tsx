@@ -61,24 +61,25 @@ export default function StudentVariantsPage() {
   const handleGenerateRandom = async () => {
     try {
       setSaving(true);
-      const newVariants = await studentHomeworkVariantsApi.createBulkForStudent(studentId);
+      
+      // Генерируем варианты через POST endpoint (он теперь обновляет существующие варианты)
+      const generatedVariants = await studentHomeworkVariantsApi.createBulkForStudent(studentId);
+      
+      // Подготавливаем данные для отправки через PUT (чтобы обновить все варианты)
+      const variantsData = generatedVariants.map(variant => ({
+        homework_id: variant.homework_id,
+        variant_number: variant.variant_number
+      }));
+      
+      // Отправляем через PUT для обновления всех вариантов
+      const updatedVariants = await studentHomeworkVariantsApi.updateBulkForStudent(studentId, variantsData);
       
       // Обновляем список вариантов
-      const updatedVariants = [...variants];
-      newVariants.forEach(newVariant => {
-        const existingIndex = updatedVariants.findIndex(v => v.homework_id === newVariant.homework_id);
-        if (existingIndex >= 0) {
-          updatedVariants[existingIndex] = newVariant;
-        } else {
-          updatedVariants.push(newVariant);
-        }
-      });
-      
       setVariants(updatedVariants);
       
       // Обновляем форму
       const updatedFormData = { ...formData };
-      newVariants.forEach(variant => {
+      updatedVariants.forEach(variant => {
         updatedFormData[variant.homework_id] = variant.variant_number;
       });
       setFormData(updatedFormData);

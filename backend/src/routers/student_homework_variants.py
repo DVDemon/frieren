@@ -160,49 +160,83 @@ def create_bulk_variants_for_student(student_id: int, db: Session = Depends(get_
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    # Получаем все домашние задания
-    all_homework = db.query(Homework).all()
+    # Получаем все домашние задания и сортируем по номеру
+    all_homework = db.query(Homework).order_by(Homework.number).all()
     
     # Получаем существующие варианты для студента
     existing_variants = db.query(StudentHomeworkVariant).filter(
         StudentHomeworkVariant.student_id == student_id
     ).all()
     existing_homework_ids = {v.homework_id for v in existing_variants}
+    existing_variants_dict = {v.homework_id: v.variant_number for v in existing_variants}
     
-    created_variants = []
+    created_or_updated_variants = []
+    import random
     
     for hw in all_homework:
-        # Если вариант уже существует, пропускаем
+        variant_number = None
+        
+        # Если is_same_variant == True, пытаемся найти вариант из предыдущего задания
+        if hw.is_same_variant is True:
+            # Ищем предыдущее домашнее задание (по номеру)
+            previous_homework = None
+            for prev_hw in all_homework:
+                if prev_hw.number < hw.number:
+                    # Проверяем, есть ли вариант для предыдущего задания (уже созданный или существующий)
+                    if prev_hw.id in existing_variants_dict:
+                        if previous_homework is None or prev_hw.number > previous_homework.number:
+                            previous_homework = prev_hw
+            
+            # Если нашли предыдущее задание и у студента есть вариант для него
+            if previous_homework and previous_homework.id in existing_variants_dict:
+                previous_variant = existing_variants_dict[previous_homework.id]
+                # Используем тот же вариант, если он не превышает количество вариантов текущего задания
+                if previous_variant <= hw.variants_count:
+                    variant_number = previous_variant
+                    logger.info(f"Using same variant {variant_number} from homework {previous_homework.number} for homework {hw.number}")
+        
+        # Если вариант не был найден из предыдущего задания, генерируем случайный
+        if variant_number is None:
+            variant_number = random.randint(1, hw.variants_count)
+        
+        # Проверяем, существует ли уже вариант для этого задания
         if hw.id in existing_homework_ids:
-            continue
+            # Обновляем существующий вариант
+            existing_variant = db.query(StudentHomeworkVariant).filter(
+                StudentHomeworkVariant.student_id == student_id,
+                StudentHomeworkVariant.homework_id == hw.id
+            ).first()
+            if existing_variant:
+                existing_variant.variant_number = variant_number
+                created_or_updated_variants.append(existing_variant)
+                logger.info(f"Updated variant for homework {hw.number} to {variant_number}")
+        else:
+            # Создаем новый вариант
+            new_variant = StudentHomeworkVariant(
+                student_id=student_id,
+                homework_id=hw.id,
+                variant_number=variant_number
+            )
+            db.add(new_variant)
+            created_or_updated_variants.append(new_variant)
         
-        # Генерируем случайный номер варианта от 1 до максимального
-        import random
-        variant_number = random.randint(1, hw.variants_count)
-        
-        # Создаем новый вариант
-        new_variant = StudentHomeworkVariant(
-            student_id=student_id,
-            homework_id=hw.id,
-            variant_number=variant_number
-        )
-        db.add(new_variant)
-        created_variants.append(new_variant)
+        # Обновляем словарь для следующих итераций
+        existing_variants_dict[hw.id] = variant_number
     
     db.commit()
     
     # Обновляем объекты для получения ID
-    for variant in created_variants:
+    for variant in created_or_updated_variants:
         db.refresh(variant)
     
-    logger.info(f"POST /api/student-homework-variants/bulk - Created {len(created_variants)} variants for student {student_id}")
+    logger.info(f"POST /api/student-homework-variants/bulk - Created/updated {len(created_or_updated_variants)} variants for student {student_id}")
     
     return [StudentHomeworkVariantInfo(
         id=variant.id,
         student_id=variant.student_id,
         homework_id=variant.homework_id,
         variant_number=variant.variant_number
-    ) for variant in created_variants]
+    ) for variant in created_or_updated_variants]
 
 @router.put("/bulk/{student_id}", response_model=List[StudentHomeworkVariantInfo])
 def update_bulk_variants_for_student(student_id: int, variants_data: List[dict], db: Session = Depends(get_db)):

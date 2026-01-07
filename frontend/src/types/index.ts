@@ -83,6 +83,7 @@ export interface Homework {
   example_link: string;
   assigned_date: string;
   variants_count: number;
+  is_same_variant: boolean;
 }
 
 export interface HomeworkCreate {
@@ -92,6 +93,7 @@ export interface HomeworkCreate {
   example_link: string;
   assigned_date: string;
   variants_count: number;
+  is_same_variant?: boolean;
 }
 
 export interface HomeworkUpdate {
@@ -101,6 +103,7 @@ export interface HomeworkUpdate {
   example_link?: string;
   assigned_date?: string;
   variants_count?: number;
+  is_same_variant?: boolean;
 }
 
 // Посещаемость

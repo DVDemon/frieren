@@ -93,14 +93,16 @@ class HomeworkInfo(TypedDict):
     example_link: str
     assigned_date: str
     variants_count: int
+    is_same_variant: bool
 
-class HomeworkCreate(TypedDict):
+class HomeworkCreate(TypedDict, total=False):
     number: int
     due_date: str
     short_description: str
     example_link: str
     assigned_date: str
     variants_count: int
+    is_same_variant: bool
 
 class HomeworkUpdate(TypedDict, total=False):
     
@@ -110,6 +112,7 @@ class HomeworkUpdate(TypedDict, total=False):
     example_link: str
     assigned_date: str
     variants_count: int
+    is_same_variant: bool
 
 class HomeworkReviewInfo(TypedDict):
 
