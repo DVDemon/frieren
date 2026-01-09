@@ -273,12 +273,16 @@ export default function HomeworkReviewPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <div className="w-full px-4">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            Проверка домашних заданий
-          </h1>
-          <p className="text-gray-600 dark:text-gray-300">
-            Управление проверкой и оценкой домашних заданий студентов
-          </p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+                Проверка домашних заданий
+              </h1>
+              <p className="text-gray-600 dark:text-gray-300">
+                Управление проверкой и оценкой домашних заданий студентов
+              </p>
+            </div>
+          </div>
         </div>
 
         {error && (

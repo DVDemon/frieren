@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -16,10 +17,12 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
-  Award
+  Award,
+  MessageSquare
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
 import { useSidebar } from '@/contexts/SidebarContext';
+import StudentChatSelector from './StudentChatSelector';
 
 const menu = [
   { href: '/', label: 'Главная', icon: <Home className="w-4 h-4" /> },
@@ -39,6 +42,7 @@ const menu = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, toggleSidebar } = useSidebar();
+  const [showStudentChatSelector, setShowStudentChatSelector] = useState(false);
   
   return (
     <aside className={`fixed left-0 top-0 h-screen bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 shadow-sm z-50 overflow-y-auto transition-all duration-300 ${
@@ -103,7 +107,30 @@ export default function Sidebar() {
             {!isCollapsed && <span>{label}</span>}
           </Link>
         ))}
+        
+        {/* Кнопка "Чат со студентом" */}
+        <button
+          onClick={() => setShowStudentChatSelector(true)}
+          className={`flex items-center rounded-md text-sm font-medium transition-colors group w-full ${
+            isCollapsed ? 'justify-center px-2 py-2' : 'space-x-2 px-3 py-2'
+          } ${
+            pathname?.startsWith('/homework-review-chat')
+              ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-800'
+          }`}
+          title={isCollapsed ? 'Чат со студентом' : undefined}
+        >
+          <span className={isCollapsed ? '' : 'flex-shrink-0'}>
+            <MessageSquare className="w-4 h-4" />
+          </span>
+          {!isCollapsed && <span>Чат со студентом</span>}
+        </button>
       </nav>
+      
+      <StudentChatSelector
+        isOpen={showStudentChatSelector}
+        onClose={() => setShowStudentChatSelector(false)}
+      />
     </aside>
   );
 }

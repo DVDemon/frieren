@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Body
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, DataError, OperationalError
 from sqlalchemy import func
-from typing import List
+from typing import List, Dict
 import logging
 from models import StudentInfo, StudentCreate, StudentUpdate, StudentStatsInfo
 from database import get_db, Student, HomeworkReview, Attendance
@@ -140,18 +140,61 @@ def get_student_by_telegram(telegram: str, db: Session = Depends(get_db)):
 
 @router.put("/by-telegram/{telegram}/chat-id", response_model=StudentInfo)
 def update_student_chat_id(telegram: str, chat_id: int, db: Session = Depends(get_db)):
+    """
+    Обновляет chat_id студента по его telegram username.
+    Может быть вызван с chat_id в query параметре или в теле запроса.
+    """
     logger.info(f"PUT /api/students/by-telegram/{telegram}/chat-id - Updating chat_id for student")
     db_student = db.query(Student).filter(Student.telegram == telegram, Student.is_deleted == False).first()
     if not db_student:
         logger.warning(f"PUT /api/students/by-telegram/{telegram}/chat-id - Student not found")
         raise HTTPException(status_code=404, detail="Student not found")
     
-    # Обновляем chat_id
-    db_student.chat_id = chat_id
-    db.commit()
-    db.refresh(db_student)
+    # Обновляем chat_id только если он изменился
+    if db_student.chat_id != chat_id:
+        db_student.chat_id = chat_id
+        db.commit()
+        db.refresh(db_student)
+        logger.info(f"PUT /api/students/by-telegram/{telegram}/chat-id - Successfully updated chat_id for student: {db_student.full_name} (new chat_id: {chat_id})")
+    else:
+        logger.debug(f"PUT /api/students/by-telegram/{telegram}/chat-id - chat_id unchanged for student: {db_student.full_name}")
     
-    logger.info(f"PUT /api/students/by-telegram/{telegram}/chat-id - Successfully updated chat_id for student: {db_student.full_name}")
+    return StudentInfo(
+        id=db_student.id,
+        year=db_student.year,
+        full_name=db_student.full_name,
+        telegram=db_student.telegram,
+        github=db_student.github,
+        group_number=db_student.group_number,
+        chat_id=db_student.chat_id,
+        is_deleted=db_student.is_deleted
+    )
+
+@router.put("/by-telegram/{telegram}/chat-id-body", response_model=StudentInfo)
+def update_student_chat_id_body(telegram: str, request_data: Dict[str, int] = Body(...), db: Session = Depends(get_db)):
+    """
+    Обновляет chat_id студента по его telegram username.
+    Принимает chat_id в теле запроса в формате JSON: {"chat_id": 123456789}
+    """
+    chat_id = request_data.get('chat_id')
+    if chat_id is None:
+        raise HTTPException(status_code=400, detail="chat_id is required in request body")
+    
+    logger.info(f"PUT /api/students/by-telegram/{telegram}/chat-id-body - Updating chat_id for student")
+    db_student = db.query(Student).filter(Student.telegram == telegram, Student.is_deleted == False).first()
+    if not db_student:
+        logger.warning(f"PUT /api/students/by-telegram/{telegram}/chat-id-body - Student not found")
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Обновляем chat_id только если он изменился
+    if db_student.chat_id != chat_id:
+        db_student.chat_id = chat_id
+        db.commit()
+        db.refresh(db_student)
+        logger.info(f"PUT /api/students/by-telegram/{telegram}/chat-id-body - Successfully updated chat_id for student: {db_student.full_name} (new chat_id: {chat_id})")
+    else:
+        logger.debug(f"PUT /api/students/by-telegram/{telegram}/chat-id-body - chat_id unchanged for student: {db_student.full_name}")
+    
     return StudentInfo(
         id=db_student.id,
         year=db_student.year,

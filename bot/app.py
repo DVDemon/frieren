@@ -77,6 +77,52 @@ dp = Dispatcher(storage=storage)
 # Временное хранилище данных пользователей
 user_data: Dict[int, Dict[str, Any]] = {}
 
+async def update_student_chat_id(telegram: str, chat_id: int) -> bool:
+    """
+    Обновляет chat_id студента в базе данных
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Используем endpoint с body параметром
+            async with session.put(
+                f"{API_BASE_URL}/students/by-telegram/{telegram}/chat-id-body",
+                json={"chat_id": chat_id},
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status == 200:
+                    logger.debug(f"Successfully updated chat_id for {telegram}: {chat_id}")
+                    return True
+                elif response.status == 404:
+                    # Студент не найден - это нормально, не логируем как ошибку
+                    logger.debug(f"Student not found for telegram {telegram}, skipping chat_id update")
+                    return False
+                else:
+                    error_text = await response.text()
+                    logger.warning(f"Failed to update chat_id for {telegram}: {response.status} - {error_text}")
+                    return False
+    except Exception as e:
+        logger.error(f"Error updating chat_id for {telegram}: {e}")
+        return False
+
+# Middleware для автоматического обновления chat_id при любом сообщении
+@dp.message.middleware()
+async def update_chat_id_middleware(handler, event: types.Message, data):
+    """
+    Middleware для автоматического обновления chat_id при любом сообщении от студента
+    """
+    if event.from_user:
+        telegram_username = event.from_user.username
+        if telegram_username:
+            telegram = f"@{telegram_username}"
+            # Обновляем chat_id асинхронно, не блокируя обработку сообщения
+            asyncio.create_task(update_student_chat_id(telegram, event.chat.id))
+        else:
+            # Если нет username, используем user_{id} формат
+            telegram = f"user_{event.from_user.id}"
+            asyncio.create_task(update_student_chat_id(telegram, event.chat.id))
+    
+    return await handler(event, data)
+
 def get_main_menu() -> ReplyKeyboardMarkup:
     """Создает главное меню бота"""
     builder = ReplyKeyboardBuilder()
@@ -139,17 +185,7 @@ async def cmd_start(message: types.Message):
                         user_info = await response.json()
                         logger.error(f"Получены данные о студенте: {user_info}")
                         
-                        # Обновляем chat_id для студента
-                        logger.info(f"Обновляем chat_id для студента @{message.from_user.username}")
-                        try:
-                            async with session.put(f"{API_BASE_URL}/students/by-telegram/@{message.from_user.username}/chat-id?chat_id={message.chat.id}", timeout=aiohttp.ClientTimeout(total=10)) as update_response:
-                                if update_response.status == 200:
-                                    updated_user_info = await update_response.json()
-                                    logger.info(f"Успешно обновлен chat_id для студента: {updated_user_info.get('full_name')}")
-                                else:
-                                    logger.warning(f"Не удалось обновить chat_id для студента @{message.from_user.username}: {update_response.status}")
-                        except Exception as e:
-                            logger.error(f"Ошибка при обновлении chat_id: {e}")
+                        # chat_id будет обновлен автоматически через middleware при любом сообщении
                         
                         welcome_text += f"Вы уже зарегистрированы в системе со следующими данными:\n"
                         welcome_text += f"• ФИО: {user_info.get('full_name')}\n"

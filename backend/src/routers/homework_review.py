@@ -9,6 +9,7 @@ import shutil
 import asyncio
 from datetime import datetime
 from openai import AsyncOpenAI
+import requests
 from models import HomeworkReviewInfo, HomeworkReviewCreate, HomeworkReviewUpdate
 from database import get_db, HomeworkReview, Student, StudentHomeworkVariant, Homework, TeacherGroup
 
@@ -17,6 +18,50 @@ os.environ['OPENAI_API_KEY'] = 'sk-66b5617dda7b43e686f2181235699141'
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/homework_review", tags=["homework_review"])
+
+def escape_html(text: str) -> str:
+    """
+    Экранирует HTML символы для безопасного использования в Telegram HTML разметке
+    """
+    if not text:
+        return ""
+    return (text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+def send_telegram_message(chat_id: int, message: str) -> bool:
+    """
+    Отправляет сообщение в Telegram через Bot API
+    """
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        logger.warning("BOT_TOKEN not set, cannot send Telegram message")
+        return False
+    
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if not response.ok:
+            error_detail = response.text
+            logger.error(f"Failed to send Telegram message to chat_id {chat_id}: {response.status_code} - {error_detail}")
+            logger.error(f"Message content (first 200 chars): {message[:200]}")
+            return False
+        logger.info(f"Successfully sent Telegram message to chat_id {chat_id}")
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to send Telegram message to chat_id {chat_id}: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error sending Telegram message to chat_id {chat_id}: {e}")
+        return False
 
 @router.get("/", response_model=List[HomeworkReviewInfo])
 @router.get("", response_model=List[HomeworkReviewInfo])
@@ -244,6 +289,69 @@ def get_pending_homework_reviews_by_teacher(teacher_id: int, db: Session = Depen
     logger.info(f"GET /api/homework_review/pending-by-teacher/{teacher_id} - Retrieved {len(result)} pending homework reviews")
     return result
 
+@router.get("/by-student/{student_id}", response_model=List[HomeworkReviewInfo])
+def get_homework_reviews_by_student(student_id: int, db: Session = Depends(get_db)):
+    logger.info(f"GET /api/homework_review/by-student/{student_id} - Retrieving homework reviews by student ID")
+    
+    # Находим студента по ID
+    student = db.query(Student).filter(
+        Student.id == student_id,
+        Student.is_deleted == False
+    ).first()
+    
+    if not student:
+        logger.info(f"GET /api/homework_review/by-student/{student_id} - Student not found with ID: {student_id}")
+        return []
+    
+    logger.info(f"GET /api/homework_review/by-student/{student_id} - Found student: {student.full_name} (ID: {student.id})")
+    
+    # Получаем все homework reviews для этого студента
+    homework_reviews = db.query(HomeworkReview).filter(
+        HomeworkReview.student_id == student.id
+    ).order_by(HomeworkReview.send_date.desc()).all()
+    
+    result = []
+    
+    for rec in homework_reviews:
+        # Получаем информацию о варианте домашнего задания
+        # Сначала находим ID домашнего задания по номеру
+        homework = db.query(Homework).filter(Homework.number == rec.number).first()
+        variant_number = None
+        if homework:
+            variant = db.query(StudentHomeworkVariant).filter(
+                StudentHomeworkVariant.student_id == rec.student_id,
+                StudentHomeworkVariant.homework_id == homework.id
+            ).first()
+            variant_number = variant.variant_number if variant else None
+        
+        review = HomeworkReviewInfo(
+            id = rec.id,
+            number=rec.number,
+            send_date =rec.send_date,
+            review_date =rec.review_date,
+            url = rec.url,
+            result = rec.result,
+            comments = rec.comments,
+            local_directory = rec.local_directory,
+            ai_percentage = rec.ai_percentage,
+            variant_number = variant_number,
+            student={
+                'id' : student.id,
+                'year': student.year,
+                'full_name': student.full_name,
+                'telegram': student.telegram,
+                'github': student.github,
+                'group_number': student.group_number,
+                'chat_id': student.chat_id,
+                'is_deleted': student.is_deleted
+            }
+        )
+        
+        result.append(review)
+    
+    logger.info(f"GET /api/homework_review/by-student/{student_id} - Retrieved {len(result)} homework reviews")
+    return result
+
 @router.get("/by-telegram/{telegram}", response_model=List[HomeworkReviewInfo])
 def get_homework_reviews_by_telegram(telegram: str, db: Session = Depends(get_db)):
     logger.info(f"GET /api/homework_review/by-telegram/{telegram} - Retrieving homework reviews by student telegram")
@@ -384,6 +492,10 @@ def update_homework_review(homework_review_id: int, att: HomeworkReviewUpdate, d
     if not db_att:
         logger.warning(f"PUT /api/homework_review/{homework_review_id} - HomeworkReview record not found")
         raise HTTPException(status_code=404, detail="HomeworkReview record not found")
+    
+    # Проверяем, обновляется ли result
+    result_updated = 'result' in att and att['result'] is not None
+    
     for key, value in att.items():
         # Исключаем student_id из обновления, так как это связь с другой таблицей
         if key == 'student_id':
@@ -397,6 +509,12 @@ def update_homework_review(homework_review_id: int, att: HomeworkReviewUpdate, d
         elif value is not None:
             # Для остальных полей только не-None значения
             setattr(db_att, key, value)
+    
+    # Если обновляется result и review_date не установлен или пустой, устанавливаем текущую дату
+    if result_updated and (not db_att.review_date or db_att.review_date.strip() == ""):
+        db_att.review_date = datetime.now().isoformat().split('T')[0]
+        logger.info(f"PUT /api/homework_review/{homework_review_id} - Auto-setting review_date to {db_att.review_date}")
+    
     db.commit()
     db.refresh(db_att)
     student = db.query(Student).filter(Student.id == db_att.student_id).first()
@@ -405,6 +523,54 @@ def update_homework_review(homework_review_id: int, att: HomeworkReviewUpdate, d
         raise HTTPException(status_code=404, detail="Student not found")
     
     logger.info(f"PUT /api/homework_review/{homework_review_id} - Successfully updated homework review")
+    
+    # Отправляем сообщение в Telegram, если у студента есть chat_id и обновлена оценка
+    if result_updated and student.chat_id:
+        # Получаем информацию о домашнем задании для сообщения
+        homework = db.query(Homework).filter(Homework.number == db_att.number).first()
+        homework_description = f"Домашнее задание №{db_att.number}"
+        if homework:
+            homework_description = f"Домашнее задание №{db_att.number}: {homework.short_description}"
+        
+        # Формируем сообщение с экранированием HTML
+        homework_desc_escaped = escape_html(homework_description)
+        message_parts = [
+            f"📝 <b>Ваша работа проверена!</b>",
+            f"",
+            f"📚 {homework_desc_escaped}",
+            f"⭐ <b>Оценка: {db_att.result}</b>"
+        ]
+        
+        if db_att.comments and db_att.comments.strip():
+            comments_escaped = escape_html(db_att.comments)
+            message_parts.append("")
+            message_parts.append(f"💬 <b>Комментарий преподавателя:</b>")
+            message_parts.append(comments_escaped)
+        
+        message = "\n".join(message_parts)
+        
+        # Проверяем длину сообщения (Telegram ограничивает до 4096 символов)
+        if len(message) > 4096:
+            logger.warning(f"Message too long ({len(message)} chars), truncating to 4096 chars")
+            # Оставляем заголовок и оценку, обрезаем комментарий
+            message_parts_short = [
+                f"📝 <b>Ваша работа проверена!</b>",
+                f"",
+                f"📚 {homework_desc_escaped}",
+                f"⭐ <b>Оценка: {db_att.result}</b>"
+            ]
+            if db_att.comments and db_att.comments.strip():
+                comments_escaped = escape_html(db_att.comments)
+                max_comment_length = 4096 - len("\n".join(message_parts_short)) - 50  # Запас для заголовка комментария
+                if max_comment_length > 0:
+                    truncated_comment = comments_escaped[:max_comment_length] + "..." if len(comments_escaped) > max_comment_length else comments_escaped
+                    message_parts_short.append("")
+                    message_parts_short.append(f"💬 <b>Комментарий преподавателя:</b>")
+                    message_parts_short.append(truncated_comment)
+            message = "\n".join(message_parts_short)
+        
+        # Отправляем сообщение
+        send_telegram_message(student.chat_id, message)
 
     # Получаем информацию о варианте домашнего задания
     # Сначала находим ID домашнего задания по номеру
