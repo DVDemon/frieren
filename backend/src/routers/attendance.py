@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
-def validate_attendance_time(lecture_date: str) -> bool:
+def validate_attendance_time(lecture_date: str, lecture_start_time: Optional[str]) -> bool:
     """
     Проверяет, что время получения запроса соответствует требованиям:
     - дата должна совпадать с датой лекции
-    - время должно быть в диапазоне 9:00 - 9:10 МСК
+    - время должно быть в диапазоне от минус 15 минут от начала лекции до плюс 15 минут от начала лекции
     """
     try:
         # Получаем текущее время в МСК
@@ -29,12 +29,25 @@ def validate_attendance_time(lecture_date: str) -> bool:
             logger.warning(f"Date mismatch: current={current_time.date()}, lecture={lecture_datetime.date()}")
             return False
         
-        # Проверяем, что время в диапазоне 9:00 - 9:10 МСК
-        start_time = current_time.replace(hour=8, minute=50, second=0, microsecond=0)
-        end_time = current_time.replace(hour=9, minute=15, second=0, microsecond=0)
+        # Если время начала лекции не указано, возвращаем False
+        if not lecture_start_time:
+            logger.warning("Lecture start_time is not specified")
+            return False
+        
+        # Парсим время начала лекции (формат HH:MM)
+        try:
+            start_hour, start_minute = map(int, lecture_start_time.split(':'))
+            lecture_start = current_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error parsing lecture start_time '{lecture_start_time}': {e}")
+            return False
+        
+        # Вычисляем диапазон: от минус 15 минут до плюс 15 минут от начала лекции
+        start_time = lecture_start - timedelta(minutes=15)
+        end_time = lecture_start + timedelta(minutes=15)
         
         if not (start_time <= current_time <= end_time):
-            logger.warning(f"Time out of range: current={current_time.time()}, allowed=09:00-09:10")
+            logger.warning(f"Time out of range: current={current_time.time()}, allowed={start_time.time()}-{end_time.time()}")
             return False
         
         logger.info(f"Time validation passed: {current_time}")
@@ -97,9 +110,9 @@ def add_attendance(
         raise HTTPException(status_code=404, detail="Lecture not found")
     
     # Проверяем время получения запроса (если не отключено)
-    if not skip_time_validation and not validate_attendance_time(lecture.date):
+    if not skip_time_validation and not validate_attendance_time(lecture.date, lecture.start_time):
         logger.warning(f"POST /api/attendance - Time validation failed for lecture_id: {att['lecture_id']}")
-        raise HTTPException(status_code=400, detail="Attendance can only be recorded on the lecture date between 9:00-9:10 MSK")
+        raise HTTPException(status_code=400, detail="Attendance can only be recorded on the lecture date within 15 minutes before and after lecture start time")
     
     if skip_time_validation:
         logger.info(f"POST /api/attendance - Time validation skipped for lecture_id: {att['lecture_id']}")
