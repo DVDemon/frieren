@@ -10,6 +10,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
 
+
+def _lecture_has_presentation(lecture: Lecture) -> bool:
+    """Проверяет, есть ли у лекции прикреплённая презентация."""
+    try:
+        return lecture.presentation_blob is not None and len(lecture.presentation_blob) > 0
+    except Exception:
+        return False
+
+
 def validate_attendance_time(lecture_date: str, lecture_start_time: Optional[str]) -> bool:
     """
     Проверяет, что время получения запроса соответствует требованиям:
@@ -87,7 +96,8 @@ def get_attendance(db: Session = Depends(get_db)):
                     'start_time': lecture.start_time,
                     'secret_code': lecture.secret_code,
                     'max_student' : lecture.max_student,
-                    'github_example' : lecture.github_example
+                    'github_example' : lecture.github_example,
+                    'has_presentation': _lecture_has_presentation(lecture),
                 },
                 present=bool(rec.present)
             ))
@@ -169,9 +179,11 @@ def add_attendance(
             'number': lecture.number,
             'topic': lecture.topic,
             'date': lecture.date,
+            'start_time': lecture.start_time,
             'secret_code': lecture.secret_code,
             'max_student': lecture.max_student,
-            'github_example' : lecture.github_example
+            'github_example' : lecture.github_example,
+            'has_presentation': _lecture_has_presentation(lecture),
         },
         present=bool(db_att.present)
     )
@@ -211,9 +223,11 @@ def update_attendance(attendance_id: int, att: AttendanceUpdate, db: Session = D
             'number': lecture.number,
             'topic': lecture.topic,
             'date': lecture.date,
+            'start_time': lecture.start_time,
             'secret_code': lecture.secret_code,
             'max_student' : lecture.max_student,
-            'github_example' : lecture.github_example
+            'github_example' : lecture.github_example,
+            'has_presentation': _lecture_has_presentation(lecture),
         },
         present=bool(db_att.present)
     )
