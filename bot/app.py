@@ -36,7 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7082344855:AAEpIzrfovj_gH6oO2xlxbUO_R89z9Wk_Oo")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "-")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api")
 N8N_BASE_URL = os.getenv("N8N_BASE_URL", "http://localhost:5678")
 
@@ -1577,25 +1577,7 @@ async def main():
     logger.info(f"  BOT_TOKEN: {'*' * len(BOT_TOKEN) if BOT_TOKEN else 'НЕ УСТАНОВЛЕН'}")
     logger.info(f"  API_BASE_URL: {API_BASE_URL}")
     logger.info(f"  N8N_BASE_URL: {N8N_BASE_URL}")
-    
-    # # Создаем папку resources если её нет
-    # os.makedirs("resources", exist_ok=True)
-    
-    # # Создаем тестовые файлы лекций
-    # for i in range(1, 6):
-    #     filename = f"resources/lecture_{i}.txt"
-    #     if not os.path.exists(filename):
-    #         with open(filename, 'w', encoding='utf-8') as f:
-    #             f.write(f"Материалы лекции №{i}\n\n")
-    #             f.write(f"Тема: Введение в предмет (лекция {i})\n")
-    #             f.write(f"Дата: {datetime.now().strftime('%d.%m.%Y')}\n\n")
-    #             f.write("Содержание лекции:\n")
-    #             f.write("1. Основные понятия\n")
-    #             f.write("2. Теоретические основы\n")
-    #             f.write("3. Практические примеры\n")
-    #             f.write("4. Домашнее задание\n\n")
-    #             f.write("Дополнительные материалы и ссылки будут предоставлены на следующей лекции.")
-    
+        
     # Запускаем бота с обработкой ошибок конфликта
     try:
         await dp.start_polling(bot)
