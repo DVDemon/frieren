@@ -13,8 +13,6 @@ import requests
 from models import HomeworkReviewInfo, HomeworkReviewCreate, HomeworkReviewUpdate
 from database import get_db, HomeworkReview, Student, StudentHomeworkVariant, Homework, TeacherGroup
 
-os.environ['OPENAI_API_KEY'] = 'sk-66b5617dda7b43e686f2181235699141'
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/homework_review", tags=["homework_review"])
